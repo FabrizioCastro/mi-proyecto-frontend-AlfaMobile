@@ -1,456 +1,654 @@
-// src/pages/Productos.tsx
-import { useEffect, useMemo, useState } from "react";
-import {
-  listarProductos,
-  crearProducto,
-  crearSeries,
-  inventarioPorVariante,
-} from "../api";
-import { container, card, h1, tableWrap, th, td, btn, input, label } from "../ui";
+import React, { useEffect, useState } from "react";
+import { listarInventarioAuto } from "../api"; // 👈 CAMBIO AQUÍ
 
-type Producto = {
-  id: number;
-  name: string;
-  default_code?: string;   // SKU
-  list_price?: number;
-  barcode?: string;
-  tracking?: "none" | "lot" | "serial";
-  variant_id?: number | null;
-  variant_name?: string | null;
-  type?: string;
-};
-
-type TotalesProducto = {
-  product_id: number;
-  quantity: number;
-  reserved: number;
-  available: number;
-  by_location: { location: string; quantity: number; reserved: number }[];
+type ProductoInventario = {
+  marca: string;
+  modelo: string;
+  stock: number;
+  ultima_entrada: string;
+  proveedores: string[];
 };
 
 export default function Productos() {
-  // Lista, búsqueda y estados
-  const [items, setItems] = useState<Producto[]>([]);
+  const [inventario, setInventario] = useState<ProductoInventario[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [activeTab, setActiveTab] = useState<'inventario' | 'stock'>('inventario');
 
-  // Crear producto
-  const [form, setForm] = useState({
-    name: "",
-    sku: "",
-    price: "",
-    barcode: "",
-    tracking: "none" as "none" | "lot" | "serial",
-  });
-  const [creating, setCreating] = useState(false);
-  const [createMsg, setCreateMsg] = useState<string | null>(null);
-
-  // Selección para acciones (series/stock)
-  const [selected, setSelected] = useState<Producto | null>(null);
-
-  // Series
-  const [serialText, setSerialText] = useState("");
-  const serialsArray = useMemo(
-    () =>
-      serialText
-        .split("\n")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0),
-    [serialText]
-  );
-  const [seriesMsg, setSeriesMsg] = useState<string | null>(null);
-  const [seriesLoading, setSeriesLoading] = useState(false);
-
-  // Stock
-  const [stockLoading, setStockLoading] = useState(false);
-  const [totales, setTotales] = useState<TotalesProducto | null>(null);
-  const [stockError, setStockError] = useState<string | null>(null);
-
-  async function cargar(busqueda?: string) {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await listarProductos(busqueda);
-      setItems(data);
-    } catch (e: any) {
-      setError(e.message || "Error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  // Cargar inventario desde productos_detallados
   useEffect(() => {
-    cargar();
-  }, []);
+    async function cargarInventario() {
+      try {
+        setLoading(true);
+        setError(null);
+        console.log('🔄 Cargando inventario automático...');
+        
+        const data = await listarInventarioAuto(q); // 👈 CAMBIO AQUÍ
+        console.log('📦 Inventario recibido:', data);
+        
+        // Asegurar que sea array
+        const dataArray = Array.isArray(data) ? data : [];
+        setInventario(dataArray);
+        
+        if (dataArray.length === 0) {
+          console.log('ℹ️ No hay productos en inventario aún');
+        }
+      } catch (e: any) {
+        console.error("❌ Error cargando inventario:", e);
+        setError(e.message || "Error al cargar el inventario. Verifica la conexión al backend.");
+        setInventario([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    cargarInventario();
+  }, [q]);
+  // Filtrar inventario
+  const inventarioFiltrado = inventario.filter(item =>
+    q ? 
+      item.marca.toLowerCase().includes(q.toLowerCase()) ||
+      item.modelo.toLowerCase().includes(q.toLowerCase()) ||
+      item.proveedores.some(prov => prov.toLowerCase().includes(q.toLowerCase()))
+    : true
+  );
 
-  async function onCrearProducto(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.name.trim()) return;
-    try {
-      setCreating(true);
-      setCreateMsg(null);
-      const payload = {
-        name: form.name.trim(),
-        sku: form.sku.trim() || undefined,
-        price: form.price ? Number(form.price) : 0,
-        barcode: form.barcode.trim() || undefined,
-        tracking: form.tracking,
-      };
-      const res = await crearProducto(payload); // { template_id, variant_id }
-      setCreateMsg(`Producto creado (template_id: ${res.template_id}, variant_id: ${res.variant_id ?? "-"})`);
-      setForm({ name: "", sku: "", price: "", barcode: "", tracking: "none" });
-      await cargar(q);
-    } catch (e: any) {
-      setCreateMsg(`Error: ${e.message || e}`);
-    } finally {
-      setCreating(false);
-    }
-  }
+  // Calcular estadísticas
+  const estadisticas = {
+    totalProductos: inventario.reduce((sum, item) => sum + item.stock, 0),
+    totalItems: inventario.length,
+  };
 
-  function onSelect(p: Producto) {
-    // Reinicia paneles auxiliares
-    setSelected(p);
-    setSerialText("");
-    setSeriesMsg(null);
-    setTotales(null);
-    setStockError(null);
-  }
-
-  async function onCargarSeries() {
-    if (!selected?.variant_id) {
-      setSeriesMsg("Este producto no tiene variante única (variant_id). No se pueden cargar series.");
-      return;
+  // SUB-MENÚ
+  const subMenuItems = [
+    {
+      id: 'inventario',
+      label: 'Inventario General',
+      description: 'Vista completa de todos los productos en stock',
+      icon: '📊',
+      color: '#3b82f6',
+      gradient: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)'
+    },
+    {
+      id: 'stock', 
+      label: 'Control de Stock',
+      description: 'Gestión de niveles de inventario y alertas',
+      icon: '📦',
+      color: '#10b981',
+      gradient: 'linear-gradient(135deg, #10b981 0%, #047857 100%)'
     }
-    if (serialsArray.length === 0) {
-      setSeriesMsg("Agrega al menos 1 número de serie (uno por línea).");
-      return;
-    }
-    try {
-      setSeriesLoading(true);
-      setSeriesMsg(null);
-      const res = await crearSeries(selected.variant_id, serialsArray);
-      setSeriesMsg(`Series creadas: ${res.created?.length ?? 0}`);
-      setSerialText("");
-    } catch (e: any) {
-      setSeriesMsg(`Error: ${e.message || e}`);
-    } finally {
-      setSeriesLoading(false);
-    }
-  }
-
-  async function onVerStock() {
-    if (!selected?.variant_id) {
-      setStockError("Este producto no tiene variant_id para consultar stock.");
-      setTotales(null);
-      return;
-    }
-    try {
-      setStockLoading(true);
-      setStockError(null);
-      const res = await inventarioPorVariante(selected.variant_id);
-      const t = (res?.totales || [])[0] as TotalesProducto | undefined;
-      setTotales(t || null);
-    } catch (e: any) {
-      setStockError(e.message || "Error consultando stock");
-      setTotales(null);
-    } finally {
-      setStockLoading(false);
-    }
-  }
+  ];
 
   return (
-    <main className={container}>
-      <div className="mb-5">
-        <h1 className={h1}>Productos</h1>
-        <p className="text-sm text-slate-500">
-          Crea productos (SKU, precio, código de barras), gestiona series y consulta stock por ubicación.
-        </p>
-      </div>
+    <div style={{
+      padding: '40px',
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+      position: 'relative'
+    }}>
+      
+      {/* Efectos de fondo */}
+      <div style={{
+        position: 'absolute',
+        top: '10%',
+        right: '5%',
+        width: '300px',
+        height: '300px',
+        background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)',
+        borderRadius: '50%'
+      }}></div>
 
-      {/* Crear producto */}
-      <div className={`${card} mb-6`}>
-        <form onSubmit={onCrearProducto} className="grid grid-cols-1 sm:grid-cols-6 gap-4 items-end">
-          <div className="sm:col-span-2">
-            <div className={label}>Nombre *</div>
-            <input
-              className={input}
-              placeholder="Xiaomi 13T Pro"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
+      <div style={{
+        maxWidth: '1400px',
+        margin: '0 auto',
+        position: 'relative',
+        zIndex: 2
+      }}>
+        
+        {/* Header Mejorado */}
+        <div style={{
+          marginBottom: '50px',
+          textAlign: 'center'
+        }}>
+          <h1 style={{
+            color: 'white',
+            fontSize: '3rem',
+            fontWeight: '800',
+            marginBottom: '12px',
+            background: 'linear-gradient(135deg, #fff 0%, #3b82f6 100%)',
+            backgroundClip: 'text',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent'
+          }}>Inventario Automático</h1>
+          <p style={{
+            color: '#94a3b8',
+            fontSize: '1.3rem',
+            fontWeight: '500'
+          }}>Stock actualizado automáticamente desde los pedidos de proveedores</p>
+        </div>
+
+        {/* Tarjetas de Estadísticas */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+          gap: '20px',
+          marginBottom: '40px'
+        }}>
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            borderRadius: '16px',
+            padding: '25px',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '2rem', marginBottom: '10px' }}>📦</div>
+            <div style={{ color: 'white', fontSize: '1.5rem', fontWeight: '700' }}>
+              {estadisticas.totalProductos}
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Productos en Stock</div>
           </div>
-          <div>
-            <div className={label}>SKU</div>
-            <input
-              className={input}
-              placeholder="XM-13TPRO"
-              value={form.sku}
-              onChange={(e) => setForm({ ...form, sku: e.target.value })}
-            />
+
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            borderRadius: '16px',
+            padding: '25px',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '2rem', marginBottom: '10px' }}>🏷️</div>
+            <div style={{ color: 'white', fontSize: '1.5rem', fontWeight: '700' }}>
+              {estadisticas.totalItems}
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Modelos Diferentes</div>
           </div>
-          <div>
-            <div className={label}>Precio</div>
-            <input
-              className={input}
-              type="number"
-              step="0.01"
-              placeholder="2499.00"
-              value={form.price}
-              onChange={(e) => setForm({ ...form, price: e.target.value })}
-            />
-          </div>
-          <div>
-            <div className={label}>Código de barras</div>
-            <input
-              className={input}
-              placeholder="1234567890123"
-              value={form.barcode}
-              onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-            />
-          </div>
-          <div>
-            <div className={label}>Tracking</div>
-            <select
-              className={`${input} pr-8`}
-              value={form.tracking}
-              onChange={(e) => setForm({ ...form, tracking: e.target.value as any })}
+
+          
+        </div>
+
+        {/* Sub-menú Mejorado */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
+          gap: '30px',
+          marginBottom: '50px',
+          maxWidth: '900px',
+          margin: '0 auto 50px'
+        }}>
+          {subMenuItems.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => setActiveTab(item.id as 'inventario' | 'stock')}
+              style={{
+                textDecoration: 'none',
+                cursor: 'pointer'
+              }}
             >
-              <option value="none">Sin tracking</option>
-              <option value="serial">Por número de serie</option>
-              <option value="lot">Por lote</option>
-            </select>
-          </div>
-          <div className="flex">
-            <button className={`${btn} w-full sm:w-auto`} disabled={creating}>
-              {creating ? "Creando…" : "Crear producto"}
-            </button>
-          </div>
-        </form>
-        {createMsg && <div className="mt-3 text-sm text-slate-600">{createMsg}</div>}
-      </div>
+              <div style={{
+                background: activeTab === item.id 
+                  ? 'rgba(255, 255, 255, 0.1)' 
+                  : 'rgba(255, 255, 255, 0.05)',
+                border: activeTab === item.id 
+                  ? `1px solid ${item.color}40` 
+                  : '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '20px',
+                padding: '40px 35px',
+                transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                position: 'relative',
+                overflow: 'hidden',
+                backdropFilter: 'blur(10px)',
+                minHeight: '200px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-10px) scale(1.02)';
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
+                e.currentTarget.style.boxShadow = `0 20px 40px ${item.color}20`;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                e.currentTarget.style.background = activeTab === item.id 
+                  ? 'rgba(255, 255, 255, 0.1)' 
+                  : 'rgba(255, 255, 255, 0.05)';
+                e.currentTarget.style.boxShadow = 'none';
+              }}>
+                
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: '4px',
+                  background: item.gradient,
+                  opacity: activeTab === item.id ? 0.8 : 0.6
+                }}></div>
 
-      {/* Búsqueda */}
-      <div className="mb-3 flex flex-wrap gap-2 items-center">
-        <input
-          className={input}
-          placeholder="Buscar por nombre o SKU…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <button className={btn} onClick={() => cargar(q)}>
-          Buscar
-        </button>
-        <button
-          className="px-4 py-2 rounded-xl border border-slate-300"
-          onClick={() => {
-            setQ("");
-            cargar("");
-          }}
-        >
-          Limpiar
-        </button>
-      </div>
+                <div>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '25px',
+                    marginBottom: '20px'
+                  }}>
+                    <div style={{
+                      width: '80px',
+                      height: '80px',
+                      background: item.gradient,
+                      borderRadius: '18px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '32px',
+                      boxShadow: `0 10px 30px ${item.color}40`
+                    }}>
+                      {item.icon}
+                    </div>
+                    <div>
+                      <h3 style={{
+                        color: 'white',
+                        fontSize: '1.6rem',
+                        fontWeight: '700',
+                        margin: '0 0 10px 0'
+                      }}>
+                        {item.label}
+                      </h3>
+                      <p style={{
+                        color: '#cbd5e1',
+                        margin: 0,
+                        fontSize: '1.1rem',
+                        fontWeight: '400'
+                      }}>
+                        {item.description}
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-      {/* Tabla de productos */}
-      <div className={tableWrap}>
-        {loading ? (
-          <div className="p-6">Cargando…</div>
-        ) : error ? (
-          <div className="p-6 text-rose-600">Error: {error}</div>
-        ) : (
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                <th className={th}>ID</th>
-                <th className={th}>Nombre</th>
-                <th className={th}>SKU</th>
-                <th className={th}>Precio</th>
-                <th className={th}>Barcode</th>
-                <th className={th}>Tracking</th>
-                <th className={th}>Variante</th>
-                <th className={th}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((p) => {
-                const isSel = selected?.id === p.id;
-                return (
-                  <tr key={p.id} className={`align-top ${isSel ? "bg-slate-50" : "hover:bg-slate-50"}`}>
-                    <td className={td}>{p.id}</td>
-                    <td className={td}>{p.name}</td>
-                    <td className={td}>{p.default_code || "-"}</td>
-                    <td className={td}>S/ {(p.list_price ?? 0).toFixed(2)}</td>
-                    <td className={td}>{p.barcode || "-"}</td>
-                    <td className={td}>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs ${
-                          p.tracking === "serial"
-                            ? "bg-blue-100 text-blue-700"
-                            : p.tracking === "lot"
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-slate-100 text-slate-700"
-                        }`}
-                      >
-                        {p.tracking ?? "none"}
-                      </span>
-                    </td>
-                    <td className={td}>
-                      {p.variant_id ? (
-                        <span className="text-slate-700">
-                          {p.variant_id} <span className="text-slate-400">({p.variant_name || "var"})</span>
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </td>
-                    <td className={`${td} space-x-2`}>
-                      <button
-                        className="px-3 py-1.5 rounded-xl border border-slate-300"
-                        onClick={() => onSelect(p)}
-                      >
-                        Seleccionar
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {items.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="p-8 text-center text-slate-500">
-                    No hay productos.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Panel de acciones para el producto seleccionado */}
-      {selected && (
-        <div className="mt-6 grid md:grid-cols-2 gap-4">
-          {/* Series */}
-          <div className={card}>
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <div className="text-sm text-slate-600">Cargar series</div>
-                <div className="text-xs text-slate-500">
-                  Producto: <b>{selected.name}</b>{" "}
-                  {selected.variant_id ? `(variant_id: ${selected.variant_id})` : "(sin variant_id)"}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <span style={{
+                    color: activeTab === item.id ? item.color : '#94a3b8',
+                    fontSize: '1rem',
+                    fontWeight: '500'
+                  }}>
+                    {activeTab === item.id ? 'Activo' : 'Click para acceder'}
+                  </span>
+                  <div style={{
+                    color: item.color,
+                    fontSize: '24px',
+                    fontWeight: 'bold',
+                    transition: 'transform 0.3s ease',
+                    transform: activeTab === item.id ? 'translateX(0)' : 'translateX(-5px)'
+                  }}>
+                    →
+                  </div>
                 </div>
               </div>
-              <span
-                className={`px-2 py-0.5 rounded-full text-xs ${
-                  selected.tracking === "serial"
-                    ? "bg-blue-100 text-blue-700"
-                    : selected.tracking === "lot"
-                    ? "bg-amber-100 text-amber-700"
-                    : "bg-slate-100 text-slate-700"
-                }`}
-                title="Tipo de tracking"
-              >
-                {selected.tracking ?? "none"}
-              </span>
             </div>
+          ))}
+        </div>
 
-            {selected.tracking === "serial" || selected.tracking === "lot" ? (
-              <>
-                <textarea
-                  className={`${input} h-32`}
-                  placeholder={"Pega 1 número por línea...\nSN-0001\nSN-0002\nSN-0003"}
-                  value={serialText}
-                  onChange={(e) => setSerialText(e.target.value)}
-                />
-                <div className="flex items-center justify-between mt-2">
-                  <div className="text-xs text-slate-500">
-                    {serialsArray.length} {serialsArray.length === 1 ? "número" : "números"} listo(s)
-                  </div>
-                  <button className={btn} onClick={onCargarSeries} disabled={seriesLoading}>
-                    {seriesLoading ? "Cargando…" : "Crear series"}
+        {/* CONTENIDO PRINCIPAL */}
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.05)',
+          borderRadius: '20px',
+          padding: '40px',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          backdropFilter: 'blur(10px)',
+          minHeight: '500px'
+        }}>
+
+          {/* ====== INVENTARIO GENERAL ====== */}
+          {activeTab === 'inventario' && (
+            <div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '30px',
+                flexWrap: 'wrap',
+                gap: '20px'
+              }}>
+                <h2 style={{
+                  color: 'white',
+                  fontSize: '2rem',
+                  fontWeight: '700',
+                  margin: 0,
+                  background: 'linear-gradient(135deg, #fff 0%, #3b82f6 100%)',
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent'
+                }}>
+                  Inventario General ({inventarioFiltrado.length})
+                </h2>
+
+                <div style={{
+                  display: 'flex',
+                  gap: '15px',
+                  alignItems: 'center',
+                  flexWrap: 'wrap'
+                }}>
+                  <input
+                    type="text"
+                    placeholder="Buscar por marca, modelo o proveedor…"
+                    value={q}
+                    onChange={e => setQ(e.target.value)}
+                    style={{
+                      padding: '12px 16px',
+                      background: 'rgba(255, 255, 255, 0.07)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      borderRadius: '10px',
+                      color: 'white',
+                      fontSize: '0.9rem',
+                      outline: 'none',
+                      minWidth: '300px'
+                    }}
+                  />
+                  <button
+                    onClick={() => setQ("")}
+                    style={{
+                      padding: '12px 20px',
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '10px',
+                      color: '#cbd5e1',
+                      fontSize: '0.9rem',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                  >
+                    🧹 Limpiar
                   </button>
                 </div>
-                {seriesMsg && <div className="mt-3 text-sm text-slate-600">{seriesMsg}</div>}
-              </>
-            ) : (
-              <div className="text-sm text-slate-500">
-                Este producto no usa series/lotes (tracking: <b>none</b>). Cambia el tracking al crear el
-                producto si necesitas control por serie o lote.
               </div>
-            )}
-          </div>
 
-          {/* Stock */}
-          <div className={card}>
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <div className="text-sm text-slate-600">Stock por ubicación</div>
-                <div className="text-xs text-slate-500">
-                  Variante seleccionada: {selected.variant_id ?? "—"}
+              {/* Tabla de inventario */}
+              {error ? (
+                <div style={{
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: '12px',
+                  padding: '30px',
+                  textAlign: 'center',
+                  color: '#ef4444',
+                  marginTop: '20px'
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
+                  <h3 style={{ margin: '0 0 10px 0', color: 'white' }}>Error al cargar inventario</h3>
+                  <p>{error}</p>
+                  <button
+                    onClick={() => window.location.reload()}
+                    style={{
+                      marginTop: '15px',
+                      padding: '10px 20px',
+                      background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      color: 'white',
+                      cursor: 'pointer',
+                      fontWeight: '600'
+                    }}
+                  >
+                    🔄 Reintentar
+                  </button>
                 </div>
-              </div>
-              <button className={btn} onClick={onVerStock} disabled={stockLoading}>
-                {stockLoading ? "Consultando…" : "Ver stock"}
-              </button>
-            </div>
-
-            {stockError && <div className="text-rose-600 mb-2">{stockError}</div>}
-
-            {totales ? (
-              <>
-                <div className="grid grid-cols-3 gap-3 mb-3">
-                  <div className="bg-white rounded-xl border p-4">
-                    <div className="text-xs text-slate-500">Cantidad</div>
-                    <div className="text-xl font-semibold">{totales.quantity}</div>
-                  </div>
-                  <div className="bg-white rounded-xl border p-4">
-                    <div className="text-xs text-slate-500">Reservado</div>
-                    <div className="text-xl font-semibold">{totales.reserved}</div>
-                  </div>
-                  <div className="bg-white rounded-xl border p-4">
-                    <div className="text-xs text-slate-500">Disponible</div>
-                    <div className="text-xl font-semibold">{totales.available}</div>
-                  </div>
+              ) : loading ? (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '80px 20px',
+                  color: '#94a3b8'
+                }}>
+                  <div style={{
+                    display: 'inline-block',
+                    width: '40px',
+                    height: '40px',
+                    border: '4px solid #94a3b8',
+                    borderTop: '4px solid #3b82f6',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                    marginBottom: '20px'
+                  }}></div>
+                  <h3 style={{ color: 'white', margin: '0 0 10px 0' }}>Cargando inventario...</h3>
+                  <p>Obteniendo datos desde los pedidos de proveedores</p>
                 </div>
-
-                <div className={tableWrap}>
-                  <table className="w-full border-collapse">
+              ) : inventarioFiltrado.length === 0 ? (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '80px 20px',
+                  color: '#94a3b8'
+                }}>
+                  <div style={{ fontSize: '64px', marginBottom: '20px' }}>📦</div>
+                  <h3 style={{ color: 'white', margin: '0 0 10px 0' }}>
+                    {q ? 'No se encontraron productos' : 'No hay productos en inventario'}
+                  </h3>
+                  <p>
+                    {q 
+                      ? `No hay productos que coincidan con "${q}". Intenta con otra búsqueda.` 
+                      : 'Agrega productos desde la sección de Proveedores para ver el stock aquí automáticamente.'
+                    }
+                  </p>
+                  {!q && (
+                    <div style={{ marginTop: '20px' }}>
+                      <a href="/proveedores" style={{
+                        padding: '12px 24px',
+                        background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                        border: 'none',
+                        borderRadius: '10px',
+                        color: 'white',
+                        textDecoration: 'none',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 8px 25px rgba(245, 158, 11, 0.4)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                      >
+                        ➕ Ir a Proveedores
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  borderRadius: '12px',
+                  overflow: 'hidden',
+                  border: '1px solid rgba(255, 255, 255, 0.1)'
+                }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse'
+                  }}>
                     <thead>
-                      <tr>
-                        <th className={th}>Ubicación</th>
-                        <th className={th}>Cantidad</th>
-                        <th className={th}>Reservado</th>
-                        <th className={th}>Disponible</th>
+                      <tr style={{
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+                      }}>
+                        <th style={{ padding: '16px', textAlign: 'left', color: 'white', fontWeight: '600' }}>Marca</th>
+                        <th style={{ padding: '16px', textAlign: 'left', color: 'white', fontWeight: '600' }}>Modelo</th>
+                        <th style={{ padding: '16px', textAlign: 'left', color: 'white', fontWeight: '600' }}>Stock</th>
+                        <th style={{ padding: '16px', textAlign: 'left', color: 'white', fontWeight: '600' }}>Última Entrada</th>
+                        <th style={{ padding: '16px', textAlign: 'left', color: 'white', fontWeight: '600' }}>Proveedores</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {totales.by_location.map((l, i) => (
-                        <tr key={i} className="hover:bg-slate-50">
-                          <td className={td}>{l.location}</td>
-                          <td className={td}>{l.quantity}</td>
-                          <td className={td}>{l.reserved}</td>
-                          <td className={td}>{(l.quantity - l.reserved).toFixed(2)}</td>
-                        </tr>
-                      ))}
-                      {totales.by_location.length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="p-6 text-center text-slate-500">
-                            Sin quants en ubicaciones internas.
+                      {inventarioFiltrado.map((item, index) => (
+                        <tr key={index} style={{
+                          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                          transition: 'background 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <td style={{ padding: '16px', color: 'white', fontWeight: '500' }}>{item.marca}</td>
+                          <td style={{ padding: '16px', color: 'white', fontWeight: '500' }}>{item.modelo}</td>
+                          <td style={{ padding: '16px' }}>
+                            <span style={{
+                              display: 'inline-block',
+                              background: item.stock > 5 ? 'rgba(34, 197, 94, 0.2)' : 
+                                          item.stock > 2 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                              color: item.stock > 5 ? '#86efac' : 
+                                     item.stock > 2 ? '#fbbf24' : '#ef4444',
+                              padding: '6px 12px',
+                              borderRadius: '20px',
+                              fontWeight: '600',
+                              fontSize: '0.9rem'
+                            }}>
+                              {item.stock} unidades
+                              {item.stock <= 2 && <span style={{ marginLeft: '4px' }}>⚠️</span>}
+                            </span>
+                          </td>
+                          <td style={{ padding: '16px', color: '#cbd5e1' }}>{item.ultima_entrada}</td>
+                          <td style={{ padding: '16px' }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                              {item.proveedores.map((prov, provIndex) => (
+                                <span key={provIndex} style={{
+                                  background: 'rgba(59, 130, 246, 0.1)',
+                                  color: '#60a5fa',
+                                  padding: '4px 8px',
+                                  borderRadius: '8px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: '500'
+                                }}>
+                                  {prov}
+                                </span>
+                              ))}
+                            </div>
                           </td>
                         </tr>
-                      )}
+                      ))}
                     </tbody>
                   </table>
                 </div>
-              </>
-            ) : (
-              <div className="text-sm text-slate-500">
-                Presiona <b>Ver stock</b> para consultar las cantidades en Odoo.
+              )}
+            </div>
+          )}
+
+          {/* ====== CONTROL DE STOCK ====== */}
+          {activeTab === 'stock' && (
+            <div>
+              <h2 style={{
+                color: 'white',
+                fontSize: '2rem',
+                fontWeight: '700',
+                marginBottom: '30px',
+                background: 'linear-gradient(135deg, #fff 0%, #10b981 100%)',
+                backgroundClip: 'text',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent'
+              }}>
+                Control de Stock
+              </h2>
+              
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+                gap: '20px',
+                marginBottom: '30px'
+              }}>
+                {/* Alerta general de stock */}
+                <div style={{
+                  background: inventarioFiltrado.some(item => item.stock <= 2) 
+                    ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)',
+                  borderRadius: '12px',
+                  padding: '25px',
+                  border: `1px solid ${inventarioFiltrado.some(item => item.stock <= 2) 
+                    ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'}`,
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '15px' }}>
+                    {inventarioFiltrado.some(item => item.stock <= 2) ? '⚠️' : '✅'}
+                  </div>
+                  <h3 style={{ color: 'white', margin: '0 0 10px 0' }}>
+                    {inventarioFiltrado.some(item => item.stock <= 2) ? '¡Stock Bajo!' : 'Stock Óptimo'}
+                  </h3>
+                  <p style={{ color: '#94a3b8', margin: 0 }}>
+                    {inventarioFiltrado.filter(item => item.stock <= 2).length} modelos necesitan reposición inmediata
+                  </p>
+                </div>
+
+                {/* Lista de stock bajo */}
+                {inventarioFiltrado.filter(item => item.stock <= 2).length > 0 && (
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    borderRadius: '12px',
+                    padding: '25px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)'
+                  }}>
+                    <h4 style={{ color: 'white', margin: '0 0 15px 0' }}>Modelos Críticos (≤2 unidades)</h4>
+                    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                      {inventarioFiltrado.filter(item => item.stock <= 2).map((item, index) => (
+                        <li key={index} style={{ 
+                          color: '#ef4444', 
+                          padding: '12px 0',
+                          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}>
+                          <span style={{ fontWeight: '500' }}>{item.marca} {item.modelo}</span>
+                          <span style={{ 
+                            background: 'rgba(239, 68, 68, 0.2)', 
+                            color: '#ef4444', 
+                            padding: '4px 8px', 
+                            borderRadius: '6px',
+                            fontWeight: '600' 
+                          }}>
+                            {item.stock} unidades
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Resumen de rotación */}
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  borderRadius: '12px',
+                  padding: '25px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  textAlign: 'center'
+                }}>
+                  <h4 style={{ color: 'white', margin: '0 0 15px 0' }}>Resumen de Rotación</h4>
+                  <p style={{ color: '#94a3b8', margin: '0 0 10px 0' }}>
+                    Modelos activos: {inventarioFiltrado.length}
+                  </p>
+                  <p style={{ color: '#94a3b8', margin: 0 }}>
+                    Stock promedio: {inventarioFiltrado.length > 0 
+                      ? Math.round(estadisticas.totalProductos / inventarioFiltrado.length) 
+                      : 0} unidades/modelo
+                  </p>
+                </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
-      )}
-    </main>
+      </div>
+
+      {/* Style para spinner */}
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
   );
 }
