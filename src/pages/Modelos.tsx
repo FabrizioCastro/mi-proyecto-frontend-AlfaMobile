@@ -215,27 +215,29 @@ export default function Modelos() {
                     Marca *
                   </label>
                   <select
-                    value={form.marca_id}
-                    onChange={(e) => setForm({...form, marca_id: e.target.value})}
-                    style={{
-                      width: '100%',
-                      padding: '12px 16px',
-                      background: 'rgba(255, 255, 255, 0.07)',
-                      border: '1px solid rgba(255, 255, 255, 0.15)',
-                      borderRadius: '10px',
-                      color: 'white',
-                      fontSize: '1rem',
-                      outline: 'none',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <option value="">Seleccionar marca</option>
-                    {marcas.map((marca) => (
-                      <option key={marca.id} value={marca.id}>
-                        {marca.name}
-                      </option>
-                    ))}
-                  </select>
+  value={form.marca_id}
+  onChange={(e) => setForm({...form, marca_id: e.target.value})}
+  style={{
+    width: '100%',
+    padding: '12px 16px',
+    background: 'rgba(255, 255, 255, 0.07)',
+    border: '1px solid rgba(255, 255, 255, 0.15)',
+    borderRadius: '10px',
+    color: 'white',
+    fontSize: '1rem',
+    outline: 'none',
+    cursor: 'pointer'
+  }}
+>
+  <option value="" style={{ background: '#1e293b', color: 'white' }}>
+    Seleccionar marca
+  </option>
+  {marcas.map((marca) => (
+    <option key={marca.id} value={marca.id} style={{ background: '#1e293b', color: 'white' }}>
+      {marca.name}
+    </option>
+  ))}
+</select>
                 </div>
 
                 <div>

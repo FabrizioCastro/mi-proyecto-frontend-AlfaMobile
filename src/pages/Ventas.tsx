@@ -63,8 +63,16 @@ type MarcaInventario = {
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // ==================== FUNCIONES API ====================
-async function listarVentas(): Promise<VentaDetalladaAPI[]> {
-  const r = await fetch(`${BASE}/api/ventas`);
+async function listarVentas(filtros?: { desde?: string; hasta?: string }): Promise<VentaDetalladaAPI[]> {
+  let url = `${BASE}/api/ventas`;
+  const params = new URLSearchParams();
+  
+  if (filtros?.desde) params.append('desde', filtros.desde);
+  if (filtros?.hasta) params.append('hasta', filtros.hasta);
+  
+  if (params.toString()) url += `?${params.toString()}`;
+  
+  const r = await fetch(url);
   if (!r.ok) throw new Error('Error al cargar ventas');
   return r.json();
 }
@@ -118,6 +126,19 @@ async function anularVenta(id: number): Promise<{ message: string }> {
 const formatCurrency = (value: number | string) => {
   const num = typeof value === 'string' ? parseFloat(value) : value;
   return `S/ ${(num || 0).toFixed(2)}`;
+};
+
+// ==================== HELPER DE FECHAS ====================
+const obtenerPrimerDiaDelMes = (fecha: Date) => {
+  return new Date(fecha.getFullYear(), fecha.getMonth(), 1).toISOString().split('T')[0];
+};
+
+const obtenerUltimoDiaDelMes = (fecha: Date) => {
+  return new Date(fecha.getFullYear(), fecha.getMonth() + 1, 0).toISOString().split('T')[0];
+};
+
+const formatearMesAnio = (fecha: Date) => {
+  return fecha.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase());
 };
 
 // ==================== MODAL DETALLE VENTA ====================
@@ -481,25 +502,29 @@ const ModalNuevaVenta = ({ onClose, onVentaCreada }: { onClose: () => void; onVe
               Cliente *
             </label>
             <select
-              value={clienteId || ''}
-              onChange={e => setClienteId(Number(e.target.value))}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                background: 'rgba(255, 255, 255, 0.07)',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
-                borderRadius: '8px',
-                color: 'white',
-                cursor: 'pointer',
-                outline: 'none',
-                fontSize: '0.9rem'
-              }}
-            >
-              <option value="">Seleccionar cliente</option>
-              {clientes.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+  value={clienteId || ''}
+  onChange={e => setClienteId(Number(e.target.value))}
+  style={{
+    width: '100%',
+    padding: '8px 10px',
+    background: 'rgba(255, 255, 255, 0.07)',
+    border: '1px solid rgba(255, 255, 255, 0.15)',
+    borderRadius: '8px',
+    color: 'white',
+    cursor: 'pointer',
+    outline: 'none',
+    fontSize: '0.9rem'
+  }}
+>
+  <option value="" style={{ background: '#1e293b', color: 'white' }}>
+    Seleccionar cliente
+  </option>
+  {clientes.map(c => (
+    <option key={c.id} value={c.id} style={{ background: '#1e293b', color: 'white' }}>
+      {c.name}
+    </option>
+  ))}
+</select>
           </div>
 
           <div>
@@ -840,24 +865,33 @@ export default function Ventas() {
   const [error, setError] = useState<string | null>(null);
   const [ventaSeleccionada, setVentaSeleccionada] = useState<VentaDetalladaAPI | null>(null);
   const [mostrarNuevaVenta, setMostrarNuevaVenta] = useState(false);
+  // 👇 NUEVOS ESTADOS PARA FILTRO
+  const [mesActual, setMesActual] = useState(new Date());
+  const [filtroActivo, setFiltroActivo] = useState(true);
 
   async function cargarVentas() {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await listarVentas();
-      setVentas(data);
-    } catch (e: any) {
-      console.error("Error cargando ventas:", e);
-      setError(e.message || "Error al cargar ventas");
-    } finally {
-      setLoading(false);
-    }
+  try {
+    setLoading(true);
+    setError(null);
+    
+    const filtros = filtroActivo ? {
+      desde: obtenerPrimerDiaDelMes(mesActual),
+      hasta: obtenerUltimoDiaDelMes(mesActual)
+    } : undefined;
+    
+    const data = await listarVentas(filtros);
+    setVentas(data);
+  } catch (e: any) {
+    console.error("Error cargando ventas:", e);
+    setError(e.message || "Error al cargar ventas");
+  } finally {
+    setLoading(false);
   }
+}
 
   useEffect(() => {
-    cargarVentas();
-  }, []);
+  cargarVentas();
+  }, [mesActual, filtroActivo]); // 👈 Agregar mesActual y filtroActivo
 
   const handleAnularVenta = async (ventaId: number) => {
     if (!confirm("¿Estás seguro de anular esta venta? Los productos volverán al inventario.")) {
@@ -1029,6 +1063,107 @@ export default function Ventas() {
             <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Productos Vendidos</div>
           </div>
         </div>
+        
+        {/* Selector de Mes */}
+<div style={{
+  background: 'rgba(255, 255, 255, 0.05)',
+  borderRadius: '16px',
+  padding: '20px',
+  border: '1px solid rgba(255, 255, 255, 0.1)',
+  marginBottom: '30px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  flexWrap: 'wrap',
+  gap: '15px'
+}}>
+  <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+    <button
+      onClick={() => setMesActual(new Date(mesActual.getFullYear(), mesActual.getMonth() - 1, 1))}
+      style={{
+        padding: '10px 16px',
+        background: 'rgba(255, 255, 255, 0.1)',
+        border: '1px solid rgba(255, 255, 255, 0.2)',
+        borderRadius: '8px',
+        color: 'white',
+        fontSize: '1.2rem',
+        cursor: 'pointer',
+        transition: 'all 0.3s ease'
+      }}
+      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
+      onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+    >
+      ←
+    </button>
+    
+    <div style={{ textAlign: 'center' }}>
+      <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '4px' }}>
+        {filtroActivo ? 'Viendo ventas de:' : 'Mostrando todas las ventas'}
+      </div>
+      <div style={{ color: 'white', fontSize: '1.3rem', fontWeight: '700' }}>
+        {filtroActivo ? formatearMesAnio(mesActual) : 'Historial Completo'}
+      </div>
+    </div>
+    
+    <button
+      onClick={() => setMesActual(new Date(mesActual.getFullYear(), mesActual.getMonth() + 1, 1))}
+      disabled={mesActual >= new Date()}
+      style={{
+        padding: '10px 16px',
+        background: mesActual >= new Date() ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.1)',
+        border: '1px solid rgba(255, 255, 255, 0.2)',
+        borderRadius: '8px',
+        color: mesActual >= new Date() ? '#64748b' : 'white',
+        fontSize: '1.2rem',
+        cursor: mesActual >= new Date() ? 'not-allowed' : 'pointer',
+        transition: 'all 0.3s ease'
+      }}
+      onMouseEnter={(e) => {
+        if (mesActual < new Date()) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+      }}
+      onMouseLeave={(e) => {
+        if (mesActual < new Date()) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+      }}
+    >
+      →
+    </button>
+  </div>
+
+  <div style={{ display: 'flex', gap: '10px' }}>
+    <button
+      onClick={() => setMesActual(new Date())}
+      style={{
+        padding: '8px 16px',
+        background: 'rgba(59, 130, 246, 0.2)',
+        border: '1px solid rgba(59, 130, 246, 0.3)',
+        borderRadius: '8px',
+        color: '#60a5fa',
+        fontSize: '0.85rem',
+        fontWeight: '600',
+        cursor: 'pointer'
+      }}
+    >
+      📅 Mes Actual
+    </button>
+    
+    <button
+      onClick={() => setFiltroActivo(!filtroActivo)}
+      style={{
+        padding: '8px 16px',
+        background: filtroActivo ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+        border: filtroActivo ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(245, 158, 11, 0.3)',
+        borderRadius: '8px',
+        color: filtroActivo ? '#86efac' : '#fbbf24',
+        fontSize: '0.85rem',
+        fontWeight: '600',
+        cursor: 'pointer'
+      }}
+    >
+      {filtroActivo ? '✓ Filtro Activo' : '🔍 Ver Todo'}
+    </button>
+  </div>
+</div>
+
 
         {/* Lista de Ventas */}
         <div style={{

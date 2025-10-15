@@ -779,25 +779,27 @@ const ModalAgregarProductos = ({
                       Marca *
                     </label>
                     <select
-                      value={formProducto.marca_id}
-                      onChange={(e) => setFormProducto({...formProducto, marca_id: e.target.value, modelo_id: ""})}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        background: 'rgba(255, 255, 255, 0.07)',
-                        border: '1px solid rgba(255, 255, 255, 0.15)',
-                        borderRadius: '8px',
-                        color: 'white',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <option value="">Seleccionar marca</option>
-                      {marcas.map((marca) => (
-                        <option key={marca.id} value={marca.id}>
-                          {marca.name}
-                        </option>
-                      ))}
-                    </select>
+  value={formProducto.marca_id}
+  onChange={(e) => setFormProducto({...formProducto, marca_id: e.target.value, modelo_id: ""})}
+  style={{
+    width: '100%',
+    padding: '10px 12px',
+    background: 'rgba(255, 255, 255, 0.07)',
+    border: '1px solid rgba(255, 255, 255, 0.15)',
+    borderRadius: '8px',
+    color: 'white',
+    cursor: 'pointer'
+  }}
+>
+  <option value="" style={{ background: '#1e293b', color: 'white' }}>
+    Seleccionar marca
+  </option>
+  {marcas.map((marca) => (
+    <option key={marca.id} value={marca.id} style={{ background: '#1e293b', color: 'white' }}>
+      {marca.name}
+    </option>
+  ))}
+</select>
                   </div>
 
                   <div style={{ marginBottom: '15px' }}>
@@ -811,26 +813,28 @@ const ModalAgregarProductos = ({
                       Modelo *
                     </label>
                     <select
-                      value={formProducto.modelo_id}
-                      onChange={(e) => setFormProducto({...formProducto, modelo_id: e.target.value})}
-                      disabled={!formProducto.marca_id || loadingProductos}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        background: 'rgba(255, 255, 255, 0.07)',
-                        border: '1px solid rgba(255, 255, 255, 0.15)',
-                        borderRadius: '8px',
-                        color: 'white',
-                        cursor: loadingProductos ? 'not-allowed' : 'pointer'
-                      }}
-                    >
-                      <option value="">Seleccionar modelo</option>
-                      {modelosFiltrados.map((modelo) => (
-                        <option key={modelo.id} value={modelo.id}>
-                          {modelo.name}
-                        </option>
-                      ))}
-                    </select>
+  value={formProducto.modelo_id}
+  onChange={(e) => setFormProducto({...formProducto, modelo_id: e.target.value})}
+  disabled={!formProducto.marca_id || loadingProductos}
+  style={{
+    width: '100%',
+    padding: '10px 12px',
+    background: 'rgba(255, 255, 255, 0.07)',
+    border: '1px solid rgba(255, 255, 255, 0.15)',
+    borderRadius: '8px',
+    color: 'white',
+    cursor: loadingProductos ? 'not-allowed' : 'pointer'
+  }}
+>
+  <option value="" style={{ background: '#1e293b', color: 'white' }}>
+    Seleccionar modelo
+  </option>
+  {modelosFiltrados.map((modelo) => (
+    <option key={modelo.id} value={modelo.id} style={{ background: '#1e293b', color: 'white' }}>
+      {modelo.name}
+    </option>
+  ))}
+</select>
                   </div>
 
                   <div style={{ marginBottom: '15px' }}>

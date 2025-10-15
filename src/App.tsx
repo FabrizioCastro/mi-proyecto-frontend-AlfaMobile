@@ -12,6 +12,7 @@ import Empleados from './pages/Empleados'; // 👈 AGREGAR ESTA IMPORT
 import Marcas from './pages/Marcas';
 import Modelos from './pages/Modelos';
 import Ventas from './pages/Ventas';
+import Egresos from './pages/Egresos';
 
 function App() {
   return (
@@ -37,6 +38,7 @@ function App() {
           <Route path="marcas" element={<Marcas />} />
           <Route path="modelos" element={<Modelos />} />
           <Route path="ventas" element={<Ventas />} />
+          <Route path="/egresos" element={<Egresos />} />
           {/* ... otras rutas que tengas */}
         </Route>
 

@@ -542,26 +542,29 @@ export default function Empleados() {
                   </label>
                   <div style={{ display: 'flex', gap: '10px' }}>
                     <select
-                      value={form.job_id}
-                      onChange={e => setForm({ ...form, job_id: e.target.value })}
-                      style={{
-                        flex: 1,
-                        padding: '12px 14px',
-                        background: 'rgba(255, 255, 255, 0.07)',
-                        border: '1px solid rgba(255, 255, 255, 0.15)',
-                        borderRadius: '8px',
-                        color: 'white',
-                        fontSize: '0.9rem',
-                        outline: 'none'
-                      }}
-                    >
-                      <option value="">Seleccionar puesto</option>
-                      {puestos.map(puesto => (
-                        <option key={puesto.id} value={puesto.id}>
-                          {puesto.name}
-                        </option>
-                      ))}
-                    </select>
+  value={form.job_id}
+  onChange={e => setForm({ ...form, job_id: e.target.value })}
+  style={{
+    flex: 1,
+    padding: '12px 14px',
+    background: 'rgba(255, 255, 255, 0.07)',
+    border: '1px solid rgba(255, 255, 255, 0.15)',
+    borderRadius: '8px',
+    color: 'white',
+    fontSize: '0.9rem',
+    outline: 'none',
+    cursor: 'pointer' // 👈 Agregué esto también
+  }}
+>
+  <option value="" style={{ background: '#1e293b', color: 'white' }}>
+    Seleccionar puesto
+  </option>
+  {puestos.map(puesto => (
+    <option key={puesto.id} value={puesto.id} style={{ background: '#1e293b', color: 'white' }}>
+      {puesto.name}
+    </option>
+  ))}
+</select>
                     <button
                       type="button"
                       onClick={() => setMostrarModalPuesto(true)}
