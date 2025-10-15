@@ -69,7 +69,7 @@ const Sidebar: React.FC = () => {
       color: '#06b6d4',
       gradient: 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
       hijos: [
-        { path: '/ingresos', label: '📈 Ingresos (Ventas)', description: 'Control de ingresos' },
+        { path: '/ventas', label: '📈 Ingresos (Ventas)', description: 'Control de ingresos' },
         { path: '/egresos', label: '📉 Egresos (Gastos Fijos)', description: 'Control de gastos' },
         { path: '/balance-comparativo', label: '⚖️ Balance Comparativo', description: 'Análisis financiero' }
       ]

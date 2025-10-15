@@ -1,232 +1,1248 @@
 // src/pages/Ventas.tsx
-import { useEffect, useMemo, useState } from "react";
-import { resumenVentas, ventasPorMes } from "../api";
-import {
-  Container,
-  Row,
-  Col,
-  Card,
-  Form,
-  Button,
-  Spinner,
-  Alert,
-  Table,
-  ButtonGroup,
-} from "react-bootstrap";
+import { useEffect, useState } from "react";
 
-type Resumen = { total: number; cantidad: number; desde: string; hasta: string };
-type Periodo = { mes: string; total: number; cantidad: number };
+// ==================== TIPOS ====================
+type VentaDetalladaAPI = {
+  id: number;
+  cliente_id: number;
+  cliente_name?: string;
+  date_order: string;
+  amount_total: number;
+  total_real: number;
+  state: string;
+  productos_count: number;
+  created_at: string;
+};
 
-const hoy = new Date();
-function toISO(d: Date) {
-  return d.toISOString().slice(0, 10);
+type VentaDetalleItemAPI = {
+  id: number;
+  venta_id: number;
+  producto_detallado_id: number;
+  precio_venta: number;
+  costo: number;
+  margen: number;
+  marca: string;
+  modelo: string;
+  imei_1: string;
+  imei_2?: string;
+  proveedor?: string;
+};
+
+type ClienteAPI = {
+  id: number;
+  name: string;
+  email?: string;
+  phone?: string;
+};
+
+type UnidadInventario = {
+  producto_id: number;
+  imei_1: string;
+  imei_2?: string;
+  costo: number;
+  fecha_ingreso: string;
+  proveedor?: string;
+  estado: string;
+};
+
+type ModeloInventario = {
+  modelo_id: number;
+  modelo: string;
+  stock: number;
+  unidades: UnidadInventario[];
+};
+
+type MarcaInventario = {
+  marca_id: number;
+  marca: string;
+  stock_total: number;
+  modelos: ModeloInventario[];
+};
+
+// ==================== API BASE ====================
+const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+// ==================== FUNCIONES API ====================
+async function listarVentas(): Promise<VentaDetalladaAPI[]> {
+  const r = await fetch(`${BASE}/api/ventas`);
+  if (!r.ok) throw new Error('Error al cargar ventas');
+  return r.json();
 }
-// primer día del mes actual
-const desdeDefault = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-const hastaDefault = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1); // exclusivo (como usa tu API)
 
-export default function Ventas() {
-  // --------- Estado resumen rango libre (YYYY-MM-DD) ---------
-  const [desde, setDesde] = useState(toISO(desdeDefault));
-  const [hasta, setHasta] = useState(toISO(hastaDefault));
-  const [res, setRes] = useState<Resumen | null>(null);
-  const [loadingRes, setLoadingRes] = useState(false);
-  const [errRes, setErrRes] = useState<string | null>(null);
+async function obtenerDetalleVenta(id: number): Promise<VentaDetalleItemAPI[]> {
+  const r = await fetch(`${BASE}/api/ventas/${id}/detalle`);
+  if (!r.ok) throw new Error('Error al cargar detalle');
+  return r.json();
+}
 
-  async function cargarResumen() {
-    try {
-      setLoadingRes(true);
-      setErrRes(null);
-      const r = await resumenVentas(desde, hasta);
-      setRes(r);
-    } catch (e: any) {
-      setErrRes(e.message || "Error");
-    } finally {
-      setLoadingRes(false);
+async function listarClientes(): Promise<ClienteAPI[]> {
+  const r = await fetch(`${BASE}/api/clientes`);
+  if (!r.ok) throw new Error('Error al cargar clientes');
+  return r.json();
+}
+
+async function listarInventarioJerarquico(q?: string): Promise<MarcaInventario[]> {
+  let url = `${BASE}/api/inventario`;
+  if (q) url += `?q=${encodeURIComponent(q)}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('Error al cargar inventario');
+  return r.json();
+}
+
+async function crearVenta(data: {
+  cliente_id: number;
+  date_order: string;
+  productos: Array<{
+    producto_detallado_id: number;
+    precio_venta: number;
+  }>;
+}): Promise<{ id: number; message: string; total: number }> {
+  const r = await fetch(`${BASE}/api/ventas`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!r.ok) throw new Error('Error al crear venta');
+  return r.json();
+}
+
+async function anularVenta(id: number): Promise<{ message: string }> {
+  const r = await fetch(`${BASE}/api/ventas/${id}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error('Error al anular venta');
+  return r.json();
+}
+
+// ==================== HELPER ====================
+const formatCurrency = (value: number | string) => {
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  return `S/ ${(num || 0).toFixed(2)}`;
+};
+
+// ==================== MODAL DETALLE VENTA ====================
+const ModalDetalleVenta = ({ venta, onClose }: { venta: VentaDetalladaAPI; onClose: () => void }) => {
+  const [detalle, setDetalle] = useState<VentaDetalleItemAPI[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function cargar() {
+      try {
+        const data = await obtenerDetalleVenta(venta.id);
+        setDetalle(data);
+      } catch (e) {
+        console.error("Error cargando detalle:", e);
+      } finally {
+        setLoading(false);
+      }
     }
-  }
-  useEffect(() => { cargarResumen(); }, []); // primer render
+    cargar();
+  }, [venta.id]);
 
-  // --------- Serie últimos N meses (YYYY-MM) ---------
-  const [nMeses, setNMeses] = useState<3 | 6 | 12>(6);
-  const [serie, setSerie] = useState<Periodo[]>([]);
-  const [loadingSerie, setLoadingSerie] = useState(false);
-  const [errSerie, setErrSerie] = useState<string | null>(null);
-
-  const rangoYM = useMemo(() => {
-    const end = new Date(hoy.getFullYear(), hoy.getMonth(), 1);   // mes actual (inicio)
-    const start = new Date(end.getFullYear(), end.getMonth() - (nMeses - 1), 1);
-    const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    return { desdeYM: ym(start), hastaYM: ym(end) };
-  }, [nMeses]);
-
-  async function cargarSerie() {
-    try {
-      setLoadingSerie(true);
-      setErrSerie(null);
-      const { periodos } = await ventasPorMes(rangoYM.desdeYM, rangoYM.hastaYM);
-      setSerie(periodos);
-    } catch (e: any) {
-      setErrSerie(e.message || "Error");
-    } finally {
-      setLoadingSerie(false);
-    }
-  }
-  useEffect(() => { cargarSerie(); }, [rangoYM.desdeYM, rangoYM.hastaYM]);
-
-  // --------- Helpers UI ---------
-  const fmtS = (n: number) => `S/ ${n.toFixed(2)}`;
-  const difTexto = useMemo(() => {
-    if (!res) return { signo: "±", clase: "secondary", abs: "0.00" };
-    // comparación simple con mismo rango del mes anterior
-    const d = new Date(desde);
-    const h = new Date(hasta);
-    const prevDesde = new Date(d.getFullYear(), d.getMonth() - 1, d.getDate());
-    const prevHasta = new Date(h.getFullYear(), h.getMonth() - 1, h.getDate());
-    // Solo para etiqueta, no recargamos API aquí para mantener simple
-    return { signo: res.total >= 0 ? "+" : "±", clase: res.total > 0 ? "success" : "secondary", abs: res.total.toFixed(2) };
-  }, [res, desde, hasta]);
+  const totalMargen = detalle.reduce((sum, item) => sum + item.margen, 0);
 
   return (
-    <Container className="py-4">
-      <div className="d-flex align-items-center justify-content-between mb-3">
-        <h1 className="h3 fw-bold m-0">Ventas</h1>
-      </div>
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0, 0, 0, 0.9)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: '20px'
+    }}>
+      <div style={{
+        background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
+        borderRadius: '20px',
+        padding: '30px',
+        width: '95%',
+        maxWidth: '1000px',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+        border: '1px solid rgba(255, 255, 255, 0.15)'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '25px',
+          paddingBottom: '20px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.15)'
+        }}>
+          <div>
+            <h2 style={{ color: 'white', fontSize: '1.8rem', fontWeight: '700', margin: 0 }}>
+              Detalle de Venta #{venta.id}
+            </h2>
+            <p style={{ color: '#94a3b8', margin: '8px 0 0 0' }}>
+              {venta.cliente_name} • {venta.date_order}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'rgba(239, 68, 68, 0.2)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              borderRadius: '10px',
+              color: '#ef4444',
+              width: '40px',
+              height: '40px',
+              fontSize: '18px',
+              cursor: 'pointer'
+            }}
+          >
+            ✕
+          </button>
+        </div>
 
-      {/* ====== Card: Resumen por rango libre ====== */}
-      <Card className="mb-3 shadow-sm border-0">
-        <Card.Body>
-          <Row className="g-3 align-items-end">
-            <Col md={3}>
-              <Form.Label>Desde</Form.Label>
-              <Form.Control
-                type="date"
-                value={desde}
-                onChange={(e) => setDesde(e.target.value)}
-              />
-            </Col>
-            <Col md={3}>
-              <Form.Label>Hasta (exclusivo)</Form.Label>
-              <Form.Control
-                type="date"
-                value={hasta}
-                onChange={(e) => setHasta(e.target.value)}
-              />
-            </Col>
-            <Col md="auto">
-              <Button onClick={cargarResumen} disabled={loadingRes}>
-                {loadingRes ? "Calculando…" : "Actualizar"}
-              </Button>
-            </Col>
-          </Row>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+            Cargando detalle...
+          </div>
+        ) : (
+          <>
+            <div style={{ marginBottom: '20px' }}>
+              {detalle.map((item) => (
+                <div key={item.id} style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  borderRadius: '10px',
+                  padding: '16px',
+                  marginBottom: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)'
+                }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '16px', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ color: 'white', fontSize: '1.1rem', fontWeight: '600', marginBottom: '4px' }}>
+                        {item.marca} {item.modelo}
+                      </div>
+                      <div style={{ color: '#94a3b8', fontSize: '0.85rem', fontFamily: 'monospace' }}>
+                        IMEI: {item.imei_1}
+                      </div>
+                      {item.proveedor && (
+                        <div style={{ color: '#fbbf24', fontSize: '0.8rem', marginTop: '4px' }}>
+                          📦 {item.proveedor}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '4px' }}>Costo</div>
+                      <div style={{ color: 'white', fontWeight: '600' }}>{formatCurrency(item.costo)}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '4px' }}>Precio Venta</div>
+                      <div style={{ color: 'white', fontWeight: '600' }}>{formatCurrency(item.precio_venta)}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '4px' }}>Margen</div>
+                      <div style={{
+                        color: item.margen >= 0 ? '#86efac' : '#ef4444',
+                        fontWeight: '700',
+                        fontSize: '1.1rem'
+                      }}>
+                        {formatCurrency(item.margen)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
 
-          {errRes ? (
-            <Alert variant="danger" className="mt-3">Error: {errRes}</Alert>
-          ) : loadingRes ? (
-            <div className="py-4 text-center"><Spinner animation="border" /></div>
-          ) : res ? (
-            <Row className="g-3 mt-3">
-              <Col md={4}>
-                <Card className="border-0 bg-light">
-                  <Card.Body>
-                    <div className="text-muted small">Total del rango</div>
-                    <div className="h4 m-0">{fmtS(res.total)}</div>
-                    <div className="text-muted small">Pedidos: {res.cantidad}</div>
-                  </Card.Body>
-                </Card>
-              </Col>
-              <Col md={4}>
-                <Card className="border-0 bg-light">
-                  <Card.Body>
-                    <div className="text-muted small">Rango</div>
-                    <div className="m-0">{res.desde} → {res.hasta}</div>
-                  </Card.Body>
-                </Card>
-              </Col>
-              <Col md={4}>
-                <Card className="border-0 bg-light">
-                  <Card.Body>
-                    <div className="text-muted small">Diferencia (indicativa)</div>
-                    <span className={`badge text-bg-${difTexto.clase}`} style={{ fontSize: 16 }}>
-                      {difTexto.signo} {fmtS(Number(difTexto.abs))}
-                    </span>
-                    <div className="text-muted small mt-1">vs referencia simple</div>
-                  </Card.Body>
-                </Card>
-              </Col>
-            </Row>
-          ) : null}
-        </Card.Body>
-      </Card>
-
-      {/* ====== Card: Serie últimos N meses ====== */}
-      <Card className="mb-3 shadow-sm border-0">
-        <Card.Body>
-          <div className="d-flex justify-content-between align-items-center mb-2">
-            <div>
-              <div className="fw-semibold">Serie: últimos N meses</div>
-              <div className="text-muted small">
-                Rango: {rangoYM.desdeYM} → {rangoYM.hastaYM}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              borderRadius: '12px',
+              padding: '20px',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr 1fr',
+              gap: '20px'
+            }}>
+              <div>
+                <div style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '8px' }}>Total Venta</div>
+                <div style={{ color: 'white', fontSize: '1.5rem', fontWeight: '700' }}>
+                  {formatCurrency(venta.total_real)}
+                </div>
+              </div>
+              <div>
+                <div style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '8px' }}>Margen Total</div>
+                <div style={{
+                  color: totalMargen >= 0 ? '#86efac' : '#ef4444',
+                  fontSize: '1.5rem',
+                  fontWeight: '700'
+                }}>
+                  {formatCurrency(totalMargen)}
+                </div>
+              </div>
+              <div>
+                <div style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '8px' }}>Productos</div>
+                <div style={{ color: 'white', fontSize: '1.5rem', fontWeight: '700' }}>
+                  {detalle.length}
+                </div>
               </div>
             </div>
-            <ButtonGroup>
-              <Button
-                size="sm"
-                variant={nMeses === 3 ? "primary" : "outline-primary"}
-                onClick={() => setNMeses(3)}
-              >
-                3m
-              </Button>
-              <Button
-                size="sm"
-                variant={nMeses === 6 ? "primary" : "outline-primary"}
-                onClick={() => setNMeses(6)}
-              >
-                6m
-              </Button>
-              <Button
-                size="sm"
-                variant={nMeses === 12 ? "primary" : "outline-primary"}
-                onClick={() => setNMeses(12)}
-              >
-                12m
-              </Button>
-            </ButtonGroup>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ==================== MODAL NUEVA VENTA (COMPACTO) ====================
+const ModalNuevaVenta = ({ onClose, onVentaCreada }: { onClose: () => void; onVentaCreada: () => void }) => {
+  const [clientes, setClientes] = useState<ClienteAPI[]>([]);
+  const [inventario, setInventario] = useState<MarcaInventario[]>([]);
+  const [clienteId, setClienteId] = useState<number | null>(null);
+  const [fechaVenta, setFechaVenta] = useState(new Date().toISOString().split('T')[0]);
+  const [productosSeleccionados, setProductosSeleccionados] = useState<Array<{
+    producto_detallado_id: number;
+    marca: string;
+    modelo: string;
+    imei_1: string;
+    precio_venta: string;
+    costo: number;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [busqueda, setBusqueda] = useState("");
+  const [marcaExpandida, setMarcaExpandida] = useState<number | null>(null);
+  const [modeloExpandido, setModeloExpandido] = useState<number | null>(null);
+
+  useEffect(() => {
+    async function cargar() {
+      try {
+        const [clientesData, inventarioData] = await Promise.all([
+          listarClientes(),
+          listarInventarioJerarquico()
+        ]);
+        setClientes(clientesData);
+        setInventario(inventarioData);
+      } catch (e) {
+        console.error("Error cargando datos:", e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    cargar();
+  }, []);
+
+  const agregarProducto = (unidad: UnidadInventario, marca: string, modelo: string) => {
+    const yaExiste = productosSeleccionados.some(p => p.producto_detallado_id === unidad.producto_id);
+    if (yaExiste) {
+      alert("Este producto ya está en la venta");
+      return;
+    }
+
+    setProductosSeleccionados([
+      ...productosSeleccionados,
+      {
+        producto_detallado_id: unidad.producto_id,
+        marca,
+        modelo,
+        imei_1: unidad.imei_1,
+        precio_venta: "",
+        costo: unidad.costo
+      }
+    ]);
+  };
+
+  const quitarProducto = (producto_id: number) => {
+    setProductosSeleccionados(productosSeleccionados.filter(p => p.producto_detallado_id !== producto_id));
+  };
+
+  const actualizarPrecio = (producto_id: number, precio: string) => {
+    setProductosSeleccionados(
+      productosSeleccionados.map(p =>
+        p.producto_detallado_id === producto_id ? { ...p, precio_venta: precio } : p
+      )
+    );
+  };
+
+  const handleCrearVenta = async () => {
+    if (!clienteId) {
+      alert("Debes seleccionar un cliente");
+      return;
+    }
+
+    if (productosSeleccionados.length === 0) {
+      alert("Debes agregar al menos un producto");
+      return;
+    }
+
+    const productosSinPrecio = productosSeleccionados.filter(p => !p.precio_venta || parseFloat(p.precio_venta) <= 0);
+    if (productosSinPrecio.length > 0) {
+      alert("Todos los productos deben tener un precio de venta válido");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await crearVenta({
+        cliente_id: clienteId,
+        date_order: fechaVenta,
+        productos: productosSeleccionados.map(p => ({
+          producto_detallado_id: p.producto_detallado_id,
+          precio_venta: parseFloat(p.precio_venta)
+        }))
+      });
+
+      alert("✅ Venta creada correctamente");
+      onVentaCreada();
+      onClose();
+    } catch (e: any) {
+      alert(`❌ Error: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const totalVenta = productosSeleccionados.reduce((sum, p) => sum + (parseFloat(p.precio_venta) || 0), 0);
+  const totalCosto = productosSeleccionados.reduce((sum, p) => sum + p.costo, 0);
+  const margenTotal = totalVenta - totalCosto;
+
+  // Filtrar inventario
+  const inventarioFiltrado = inventario.map(marca => ({
+    ...marca,
+    modelos: marca.modelos.map(modelo => ({
+      ...modelo,
+      unidades: modelo.unidades.filter(unidad =>
+        !busqueda ||
+        marca.marca.toLowerCase().includes(busqueda.toLowerCase()) ||
+        modelo.modelo.toLowerCase().includes(busqueda.toLowerCase()) ||
+        unidad.imei_1.includes(busqueda) ||
+        unidad.proveedor?.toLowerCase().includes(busqueda.toLowerCase())
+      )
+    })).filter(modelo => modelo.unidades.length > 0)
+  })).filter(marca => marca.modelos.length > 0);
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0, 0, 0, 0.95)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: '20px'
+    }}>
+      {/* 👇 MODAL MÁS COMPACTO - 70% ancho máximo */}
+      <div style={{
+        background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
+        borderRadius: '20px',
+        padding: '25px',
+        width: '90%',
+        maxWidth: '900px', // 👈 Reducido de 1400px a 900px
+        maxHeight: '85vh',
+        overflowY: 'auto',
+        border: '1px solid rgba(255, 255, 255, 0.15)'
+      }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '20px',
+          paddingBottom: '15px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.15)'
+        }}>
+          <h2 style={{ color: 'white', fontSize: '1.6rem', fontWeight: '700', margin: 0 }}>
+            Nueva Venta
+          </h2>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'rgba(239, 68, 68, 0.2)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              borderRadius: '8px',
+              color: '#ef4444',
+              width: '32px',
+              height: '32px',
+              fontSize: '16px',
+              cursor: 'pointer'
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Cliente y Fecha en una fila */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '15px',
+          marginBottom: '20px'
+        }}>
+          <div>
+            <label style={{ color: 'white', display: 'block', marginBottom: '6px', fontSize: '0.85rem', fontWeight: '600' }}>
+              Cliente *
+            </label>
+            <select
+              value={clienteId || ''}
+              onChange={e => setClienteId(Number(e.target.value))}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                background: 'rgba(255, 255, 255, 0.07)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: '8px',
+                color: 'white',
+                cursor: 'pointer',
+                outline: 'none',
+                fontSize: '0.9rem'
+              }}
+            >
+              <option value="">Seleccionar cliente</option>
+              {clientes.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
           </div>
 
-          {errSerie ? (
-            <Alert variant="danger" className="mt-2">Error: {errSerie}</Alert>
-          ) : loadingSerie ? (
-            <div className="py-4 text-center"><Spinner animation="border" /></div>
+          <div>
+            <label style={{ color: 'white', display: 'block', marginBottom: '6px', fontSize: '0.85rem', fontWeight: '600' }}>
+              Fecha de Venta
+            </label>
+            <input
+              type="date"
+              value={fechaVenta}
+              onChange={e => setFechaVenta(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                background: 'rgba(255, 255, 255, 0.07)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: '8px',
+                color: 'white',
+                outline: 'none',
+                fontSize: '0.9rem'
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Buscador */}
+        <input
+          type="text"
+          placeholder="🔍 Buscar por marca, modelo, IMEI..."
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '10px 14px',
+            background: 'rgba(255, 255, 255, 0.07)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '10px',
+            color: 'white',
+            marginBottom: '15px',
+            outline: 'none',
+            fontSize: '0.9rem'
+          }}
+        />
+
+        {/* Productos Seleccionados */}
+        {productosSeleccionados.length > 0 && (
+          <div style={{
+            background: 'rgba(16, 185, 129, 0.1)',
+            borderRadius: '10px',
+            padding: '12px',
+            marginBottom: '15px',
+            border: '1px solid rgba(16, 185, 129, 0.3)'
+          }}>
+            <h4 style={{ color: 'white', marginBottom: '10px', fontSize: '0.95rem', fontWeight: '600' }}>
+              Productos Seleccionados ({productosSeleccionados.length})
+            </h4>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+              {productosSeleccionados.map((producto) => (
+                <div key={producto.producto_detallado_id} style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  borderRadius: '6px',
+                  padding: '10px',
+                  display: 'grid',
+                  gridTemplateColumns: '2fr 1fr auto',
+                  gap: '10px',
+                  alignItems: 'center'
+                }}>
+                  <div>
+                    <div style={{ color: 'white', fontSize: '0.85rem', fontWeight: '600' }}>
+                      {producto.marca} {producto.modelo}
+                    </div>
+                    <div style={{ color: '#94a3b8', fontSize: '0.7rem', fontFamily: 'monospace' }}>
+                      {producto.imei_1}
+                    </div>
+                  </div>
+                  
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Precio S/"
+                    value={producto.precio_venta}
+                    onChange={e => actualizarPrecio(producto.producto_detallado_id, e.target.value)}
+                    style={{
+                      padding: '6px 8px',
+                      background: 'rgba(255, 255, 255, 0.07)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      borderRadius: '6px',
+                      color: 'white',
+                      fontSize: '0.85rem',
+                      outline: 'none'
+                    }}
+                  />
+
+                  <button
+                    onClick={() => quitarProducto(producto.producto_detallado_id)}
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.2)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      borderRadius: '6px',
+                      color: '#ef4444',
+                      width: '24px',
+                      height: '24px',
+                      fontSize: '12px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Resumen Financiero */}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              borderRadius: '8px',
+              padding: '10px',
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr 1fr',
+              gap: '10px',
+              fontSize: '0.85rem'
+            }}>
+              <div>
+                <div style={{ color: '#94a3b8', marginBottom: '4px' }}>Costo</div>
+                <div style={{ color: 'white', fontWeight: '600' }}>{formatCurrency(totalCosto)}</div>
+              </div>
+              <div>
+                <div style={{ color: '#94a3b8', marginBottom: '4px' }}>Venta</div>
+                <div style={{ color: 'white', fontWeight: '600' }}>{formatCurrency(totalVenta)}</div>
+              </div>
+              <div>
+                <div style={{ color: '#94a3b8', marginBottom: '4px' }}>Margen</div>
+                <div style={{
+                  color: margenTotal >= 0 ? '#86efac' : '#ef4444',
+                  fontWeight: '700'
+                }}>
+                  {formatCurrency(margenTotal)}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Lista de Inventario Compacta */}
+        <div style={{
+          maxHeight: '300px',
+          overflowY: 'auto',
+          marginBottom: '15px'
+        }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
+              Cargando productos...
+            </div>
+          ) : inventarioFiltrado.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
+              No hay productos disponibles
+            </div>
           ) : (
-            <Table hover responsive className="m-0">
-              <thead className="table-light">
-                <tr>
-                  <th>Mes</th>
-                  <th>Pedidos</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {serie.map((p) => (
-                  <tr key={p.mes}>
-                    <td>{p.mes}</td>
-                    <td>{p.cantidad}</td>
-                    <td>{fmtS(p.total)}</td>
-                  </tr>
-                ))}
-                {serie.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="text-center py-4 text-muted">
-                      Sin información.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </Table>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {inventarioFiltrado.map((marca) => (
+                <div key={marca.marca_id} style={{
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  overflow: 'hidden'
+                }}>
+                  <div
+                    onClick={() => setMarcaExpandida(marcaExpandida === marca.marca_id ? null : marca.marca_id)}
+                    style={{
+                      padding: '10px 12px',
+                      background: 'rgba(59, 130, 246, 0.1)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{
+                        fontSize: '0.85rem',
+                        transform: marcaExpandida === marca.marca_id ? 'rotate(90deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.3s ease'
+                      }}>▶</span>
+                      <span style={{ color: 'white', fontSize: '0.9rem', fontWeight: '600' }}>{marca.marca}</span>
+                    </div>
+                    <span style={{
+                      background: 'rgba(59, 130, 246, 0.2)',
+                      color: '#60a5fa',
+                      padding: '3px 8px',
+                      borderRadius: '10px',
+                      fontSize: '0.75rem',
+                      fontWeight: '600'
+                    }}>
+                      {marca.stock_total}
+                    </span>
+                  </div>
+
+                  {marcaExpandida === marca.marca_id && (
+                    <div style={{ padding: '6px 12px 6px 30px' }}>
+                      {marca.modelos.map((modelo) => (
+                        <div key={modelo.modelo_id} style={{
+                          marginBottom: '6px',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          borderRadius: '6px',
+                          overflow: 'hidden'
+                        }}>
+                          <div
+                            onClick={() => setModeloExpandido(modeloExpandido === modelo.modelo_id ? null : modelo.modelo_id)}
+                            style={{
+                              padding: '8px 10px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{
+                                fontSize: '0.75rem',
+                                transform: modeloExpandido === modelo.modelo_id ? 'rotate(90deg)' : 'rotate(0deg)',
+                                transition: 'transform 0.3s ease'
+                              }}>▶</span>
+                              <span style={{ color: 'white', fontSize: '0.85rem', fontWeight: '500' }}>
+                                {modelo.modelo}
+                              </span>
+                            </div>
+                            <span style={{
+                              background: 'rgba(16, 185, 129, 0.2)',
+                              color: '#86efac',
+                              padding: '2px 6px',
+                              borderRadius: '8px',
+                              fontSize: '0.7rem',
+                              fontWeight: '600'
+                            }}>
+                              {modelo.stock}
+                            </span>
+                          </div>
+
+                          {modeloExpandido === modelo.modelo_id && (
+                            <div style={{ padding: '0 10px 6px 28px' }}>
+                              {modelo.unidades.map((unidad) => {
+                                const yaSeleccionado = productosSeleccionados.some(
+                                  p => p.producto_detallado_id === unidad.producto_id
+                                );
+
+                                return (
+                                  <div key={unidad.producto_id} style={{
+                                    background: yaSeleccionado ? 'rgba(34, 197, 94, 0.1)' : 'rgba(255, 255, 255, 0.03)',
+                                    borderRadius: '4px',padding: '8px',
+                                    marginBottom: '4px',
+                                    border: yaSeleccionado ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(255, 255, 255, 0.05)',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                  }}>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{
+                                        color: '#94a3b8',
+                                        fontSize: '0.65rem',
+                                        marginBottom: '2px'
+                                      }}>
+                                        IMEI
+                                      </div>
+                                      <div style={{
+                                        color: 'white',
+                                        fontFamily: 'monospace',
+                                        fontSize: '0.75rem',
+                                        fontWeight: '600'
+                                      }}>
+                                        {unidad.imei_1}
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={() => agregarProducto(unidad, marca.marca, modelo.modelo)}
+                                      disabled={yaSeleccionado}
+                                      style={{
+                                        padding: '4px 10px',
+                                        background: yaSeleccionado
+                                          ? 'rgba(34, 197, 94, 0.2)'
+                                          : 'linear-gradient(135deg, #10b981 0%, #047857 100%)',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        color: 'white',
+                                        fontSize: '0.7rem',
+                                        fontWeight: '600',
+                                        cursor: yaSeleccionado ? 'not-allowed' : 'pointer',
+                                        opacity: yaSeleccionado ? 0.6 : 1
+                                      }}
+                                    >
+                                      {yaSeleccionado ? '✓' : '+'}
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
-        </Card.Body>
-      </Card>
-    </Container>
+        </div>
+
+        {/* Botón Crear Venta */}
+        <button
+          onClick={handleCrearVenta}
+          disabled={loading || !clienteId || productosSeleccionados.length === 0}
+          style={{
+            padding: '12px 20px',
+            background: loading || !clienteId || productosSeleccionados.length === 0
+              ? 'rgba(16, 185, 129, 0.3)'
+              : 'linear-gradient(135deg, #10b981 0%, #047857 100%)',
+            border: 'none',
+            borderRadius: '10px',
+            color: 'white',
+            fontSize: '1rem',
+            fontWeight: '700',
+            cursor: loading || !clienteId || productosSeleccionados.length === 0 ? 'not-allowed' : 'pointer',
+            transition: 'all 0.3s ease',
+            width: '100%'
+          }}
+        >
+          {loading ? 'Procesando...' : `💰 Crear Venta (${formatCurrency(totalVenta)})`}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ==================== COMPONENTE PRINCIPAL ====================
+export default function Ventas() {
+  const [ventas, setVentas] = useState<VentaDetalladaAPI[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [ventaSeleccionada, setVentaSeleccionada] = useState<VentaDetalladaAPI | null>(null);
+  const [mostrarNuevaVenta, setMostrarNuevaVenta] = useState(false);
+
+  async function cargarVentas() {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await listarVentas();
+      setVentas(data);
+    } catch (e: any) {
+      console.error("Error cargando ventas:", e);
+      setError(e.message || "Error al cargar ventas");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    cargarVentas();
+  }, []);
+
+  const handleAnularVenta = async (ventaId: number) => {
+    if (!confirm("¿Estás seguro de anular esta venta? Los productos volverán al inventario.")) {
+      return;
+    }
+
+    try {
+      await anularVenta(ventaId);
+      alert("✅ Venta anulada correctamente");
+      cargarVentas();
+    } catch (e: any) {
+      alert(`❌ Error: ${e.message}`);
+    }
+  };
+
+  const totalVentas = ventas.reduce((sum, v) => sum + v.total_real, 0);
+  const totalProductosVendidos = ventas.reduce((sum, v) => sum + v.productos_count, 0);
+
+  return (
+    <div style={{
+      padding: '40px',
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+      position: 'relative'
+    }}>
+      
+      {/* Modales */}
+      {ventaSeleccionada && (
+        <ModalDetalleVenta 
+          venta={ventaSeleccionada} 
+          onClose={() => setVentaSeleccionada(null)} 
+        />
+      )}
+
+      {mostrarNuevaVenta && (
+        <ModalNuevaVenta 
+          onClose={() => setMostrarNuevaVenta(false)} 
+          onVentaCreada={cargarVentas}
+        />
+      )}
+
+      {/* Efectos de fondo */}
+      <div style={{
+        position: 'absolute',
+        top: '10%',
+        right: '5%',
+        width: '300px',
+        height: '300px',
+        background: 'radial-gradient(circle, rgba(16, 185, 129, 0.1) 0%, transparent 70%)',
+        borderRadius: '50%'
+      }}></div>
+
+      <div style={{
+        maxWidth: '1400px',
+        margin: '0 auto',
+        position: 'relative',
+        zIndex: 2
+      }}>
+        
+        {/* Header */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '40px'
+        }}>
+          <div>
+            <h1 style={{
+              color: 'white',
+              fontSize: '3rem',
+              fontWeight: '800',
+              margin: '0 0 8px 0',
+              background: 'linear-gradient(135deg, #fff 0%, #10b981 100%)',
+              backgroundClip: 'text',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent'
+            }}>
+              Gestión de Ventas
+            </h1>
+            <p style={{
+              color: '#94a3b8',
+              fontSize: '1.1rem',
+              margin: 0
+            }}>
+              Registra y administra las ventas de productos
+            </p>
+          </div>
+
+          <button
+            onClick={() => setMostrarNuevaVenta(true)}
+            style={{
+              padding: '14px 28px',
+              background: 'linear-gradient(135deg, #10b981 0%, #047857 100%)',
+              border: 'none',
+              borderRadius: '12px',
+              color: 'white',
+              fontSize: '1.1rem',
+              fontWeight: '700',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              transition: 'all 0.3s ease',
+              boxShadow: '0 4px 15px rgba(16, 185, 129, 0.3)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 8px 25px rgba(16, 185, 129, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 4px 15px rgba(16, 185, 129, 0.3)';
+            }}
+          >
+            <span style={{ fontSize: '1.3rem' }}>💰</span>
+            Nueva Venta
+          </button>
+        </div>
+
+        {/* Estadísticas */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: '20px',
+          marginBottom: '40px'
+        }}>
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            borderRadius: '16px',
+            padding: '25px',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '2rem', marginBottom: '10px' }}>💵</div>
+            <div style={{ color: 'white', fontSize: '1.8rem', fontWeight: '700' }}>
+              {formatCurrency(totalVentas)}
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Total en Ventas</div>
+          </div>
+
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            borderRadius: '16px',
+            padding: '25px',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '2rem', marginBottom: '10px' }}>🛒</div>
+            <div style={{ color: 'white', fontSize: '1.8rem', fontWeight: '700' }}>
+              {ventas.length}
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Ventas Realizadas</div>
+          </div>
+
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            borderRadius: '16px',
+            padding: '25px',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '2rem', marginBottom: '10px' }}>📱</div>
+            <div style={{ color: 'white', fontSize: '1.8rem', fontWeight: '700' }}>
+              {totalProductosVendidos}
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Productos Vendidos</div>
+          </div>
+        </div>
+
+        {/* Lista de Ventas */}
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.05)',
+          borderRadius: '20px',
+          padding: '40px',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          backdropFilter: 'blur(10px)'
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '30px'
+          }}>
+            <h2 style={{
+              color: 'white',
+              fontSize: '1.8rem',
+              fontWeight: '700',
+              margin: 0
+            }}>
+              Historial de Ventas
+            </h2>
+            <button
+              onClick={cargarVentas}
+              style={{
+                padding: '10px 20px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '10px',
+                color: '#cbd5e1',
+                fontSize: '0.9rem',
+                fontWeight: '600',
+                cursor: 'pointer'
+              }}
+            >
+              🔄 Actualizar
+            </button>
+          </div>
+
+          {error ? (
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '12px',
+              padding: '30px',
+              textAlign: 'center',
+              color: '#ef4444'
+            }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
+              <h3 style={{ margin: '0 0 10px 0', color: 'white' }}>Error al cargar ventas</h3>
+              <p>{error}</p>
+            </div>
+          ) : loading ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '80px 20px',
+              color: '#94a3b8'
+            }}>
+              <div style={{
+                display: 'inline-block',
+                width: '40px',
+                height: '40px',
+                border: '4px solid #94a3b8',
+                borderTop: '4px solid #10b981',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+                marginBottom: '20px'
+              }}></div>
+              <h3 style={{ color: 'white', margin: '0 0 10px 0' }}>Cargando ventas...</h3>
+            </div>
+          ) : ventas.length === 0 ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '80px 20px',
+              color: '#94a3b8'
+            }}>
+              <div style={{ fontSize: '64px', marginBottom: '20px' }}>🛒</div>
+              <h3 style={{ color: 'white', margin: '0 0 10px 0' }}>No hay ventas registradas</h3>
+              <p>Comienza creando tu primera venta</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: '16px' }}>
+              {ventas.map((venta) => (
+                <div
+                  key={venta.id}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    transition: 'all 0.3s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        marginBottom: '8px'
+                      }}>
+                        <span style={{
+                          background: 'rgba(16, 185, 129, 0.2)',
+                          color: '#86efac',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '0.8rem',
+                          fontWeight: '600'
+                        }}>
+                          Venta #{venta.id}
+                        </span>
+                        <h4 style={{
+                          color: 'white',
+                          fontSize: '1.1rem',
+                          fontWeight: '600',
+                          margin: 0
+                        }}>
+                          {venta.cliente_name || 'Sin cliente'}
+                        </h4>
+                      </div>
+                      
+                      <div style={{
+                        display: 'flex',
+                        gap: '20px',
+                        color: '#94a3b8',
+                        fontSize: '0.9rem'
+                      }}>
+                        <span>📅 {venta.date_order}</span>
+                        <span>📦 {venta.productos_count} producto{venta.productos_count !== 1 ? 's' : ''}</span>
+                      </div>
+                    </div>
+                    
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '20px'
+                    }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{
+                          color: '#94a3b8',
+                          fontSize: '0.75rem',
+                          marginBottom: '4px'
+                        }}>
+                          Total
+                        </div>
+                        <div style={{
+                          color: 'white',
+                          fontWeight: '700',
+                          fontSize: '1.3rem'
+                        }}>
+                          {formatCurrency(venta.total_real)}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          onClick={() => setVentaSeleccionada(venta)}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'rgba(59, 130, 246, 0.2)',
+                            border: '1px solid rgba(59, 130, 246, 0.3)',
+                            borderRadius: '8px',
+                            color: '#60a5fa',
+                            fontSize: '0.85rem',
+                            fontWeight: '600',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          👁️ Ver Detalle
+                        </button>
+                        <button
+                          onClick={() => handleAnularVenta(venta.id)}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'rgba(239, 68, 68, 0.2)',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            borderRadius: '8px',
+                            color: '#ef4444',
+                            fontSize: '0.85rem',
+                            fontWeight: '600',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          ✕ Anular
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
   );
 }

@@ -360,6 +360,37 @@ export async function actualizarPedidoProveedor(id: number, data: {
   return jput(`${BASE}/api/pedidos-proveedor/${id}`, data);
 }
 
+// ===================== INVENTARIO JERÁRQUICO =====================
+export type UnidadInventario = {
+  producto_id: number;
+  imei_1: string;
+  imei_2?: string;
+  costo: number;
+  fecha_ingreso: string;
+  proveedor?: string;
+  estado: string;
+};
+
+export type ModeloInventario = {
+  modelo_id: number;
+  modelo: string;
+  stock: number;
+  unidades: UnidadInventario[];
+};
+
+export type MarcaInventario = {
+  marca_id: number;
+  marca: string;
+  stock_total: number;
+  modelos: ModeloInventario[];
+};
+
+export async function listarInventarioJerarquico(q?: string): Promise<MarcaInventario[]> {
+  let url = `${BASE}/api/inventario`;
+  if (q) url += `?q=${encodeURIComponent(q)}`;
+  return jget<MarcaInventario[]>(url);
+}
+
 /* ========== PING ========== */
 export async function ping(): Promise<{ ok: boolean }> {
   return jget(`${BASE}/api/ping`);
