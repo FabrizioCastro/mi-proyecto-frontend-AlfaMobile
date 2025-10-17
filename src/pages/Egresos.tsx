@@ -1,13 +1,10 @@
 // src/pages/Egresos.tsx
 import { useEffect, useState } from "react";
 
-// ==================== TIPOS ====================
 type TipoEgresoAPI = {
   id: number;
   name: string;
   descripcion?: string;
-  activo: boolean;
-  created_at: string;
 };
 
 type EgresoAPI = {
@@ -17,13 +14,14 @@ type EgresoAPI = {
   monto: number;
   fecha: string;
   descripcion?: string;
+  origen?: string;
+  pagado?: boolean;
+  fecha_pago?: string;
   created_at: string;
 };
 
-// ==================== API BASE ====================
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-// ==================== FUNCIONES API ====================
 async function listarTiposEgreso(): Promise<TipoEgresoAPI[]> {
   const r = await fetch(`${BASE}/api/tipos-egreso`);
   if (!r.ok) throw new Error('Error al cargar tipos de egreso');
@@ -59,6 +57,7 @@ async function crearEgreso(data: {
   monto: number;
   fecha: string;
   descripcion?: string;
+  fecha_vencimiento?: string;
 }): Promise<{ id: number; message: string }> {
   const r = await fetch(`${BASE}/api/egresos`, {
     method: "POST",
@@ -77,10 +76,22 @@ async function eliminarEgreso(id: number): Promise<{ message: string }> {
   return r.json();
 }
 
-// ==================== HELPER ====================
+async function marcarEgresoPagado(id: number): Promise<{ message: string; fecha_pago: string }> {
+  const r = await fetch(`${BASE}/api/egresos/${id}/pagar`, {
+    method: "PUT",
+  });
+  if (!r.ok) throw new Error('Error al marcar como pagado');
+  return r.json();
+}
+
 const formatCurrency = (value: number | string) => {
   const num = typeof value === 'string' ? parseFloat(value) : value;
   return `S/ ${(num || 0).toFixed(2)}`;
+};
+
+const formatearFecha = (fecha: string) => {
+  const [year, month, day] = fecha.split('-');
+  return `${day}/${month}/${year}`;
 };
 
 const obtenerPrimerDiaDelMes = (fecha: Date) => {
@@ -261,7 +272,8 @@ const ModalNuevoEgreso = ({ onClose, onCreado }: { onClose: () => void; onCreado
     tipo_egreso_id: '',
     monto: '',
     fecha: new Date().toISOString().split('T')[0],
-    descripcion: ''
+    descripcion: '',
+    fecha_vencimiento: ''
   });
   const [loading, setLoading] = useState(true);
 
@@ -298,9 +310,10 @@ const ModalNuevoEgreso = ({ onClose, onCreado }: { onClose: () => void; onCreado
         tipo_egreso_id: parseInt(form.tipo_egreso_id),
         monto: parseFloat(form.monto),
         fecha: form.fecha,
-        descripcion: form.descripcion || undefined
+        descripcion: form.descripcion || undefined,
+        fecha_vencimiento: form.fecha_vencimiento || undefined
       });
-      alert("✅ Egreso registrado correctamente");
+      alert("✅ Egreso y cuenta por pagar creados correctamente");
       onCreado();
       onClose();
     } catch (e: any) {
@@ -369,29 +382,27 @@ const ModalNuevoEgreso = ({ onClose, onCreado }: { onClose: () => void; onCreado
                 Tipo de Egreso *
               </label>
               <select
-  value={form.tipo_egreso_id}
-  onChange={e => setForm({...form, tipo_egreso_id: e.target.value})}
-  style={{
-    width: '100%',
-    padding: '10px 12px',
-    background: 'rgba(255, 255, 255, 0.07)',
-    border: '1px solid rgba(255, 255, 255, 0.15)',
-    borderRadius: '8px',
-    color: 'white',
-    cursor: 'pointer',
-    outline: 'none',
-    fontSize: '0.9rem'
-  }}
->
-  <option value="" style={{ background: '#1e293b', color: 'white' }}>
-    Seleccionar tipo
-  </option>
-  {tiposEgreso.map(tipo => (
-    <option key={tipo.id} value={tipo.id} style={{ background: '#1e293b', color: 'white' }}>
-      {tipo.name}
-    </option>
-  ))}
-</select>
+                value={form.tipo_egreso_id}
+                onChange={e => setForm({...form, tipo_egreso_id: e.target.value})}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  background: 'rgba(255, 255, 255, 0.07)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  borderRadius: '8px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  fontSize: '0.9rem'
+                }}
+              >
+                <option value="" style={{ background: '#1e293b', color: 'white' }}>Seleccionar tipo</option>
+                {tiposEgreso.map(tipo => (
+                  <option key={tipo.id} value={tipo.id} style={{ background: '#1e293b', color: 'white' }}>
+                    {tipo.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
@@ -421,7 +432,7 @@ const ModalNuevoEgreso = ({ onClose, onCreado }: { onClose: () => void; onCreado
 
               <div>
                 <label style={{ color: 'white', display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: '600' }}>
-                  Fecha *
+                  Fecha de Registro *
                 </label>
                 <input
                   type="date"
@@ -439,6 +450,27 @@ const ModalNuevoEgreso = ({ onClose, onCreado }: { onClose: () => void; onCreado
                   }}
                 />
               </div>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ color: 'white', display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: '600' }}>
+                Fecha de Vencimiento (Opcional)
+              </label>
+              <input
+                type="date"
+                value={form.fecha_vencimiento}
+                onChange={e => setForm({...form, fecha_vencimiento: e.target.value})}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  background: 'rgba(255, 255, 255, 0.07)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  borderRadius: '8px',
+                  color: 'white',
+                  fontSize: '0.9rem',
+                  outline: 'none'
+                }}
+              />
             </div>
 
             <div style={{ marginBottom: '25px' }}>
@@ -521,10 +553,12 @@ export default function Egresos() {
       setLoading(true);
       setError(null);
       
-      const filtros = filtroActivo ? {
-        desde: obtenerPrimerDiaDelMes(mesActual),
-        hasta: obtenerUltimoDiaDelMes(mesActual)
-      } : undefined;
+      let filtros: { desde?: string; hasta?: string } = {};
+      
+      if (filtroActivo) {
+        filtros.desde = obtenerPrimerDiaDelMes(mesActual);
+        filtros.hasta = obtenerUltimoDiaDelMes(mesActual);
+      }
       
       const data = await listarEgresos(filtros);
       setEgresos(data);
@@ -540,8 +574,22 @@ export default function Egresos() {
     cargarEgresos();
   }, [mesActual, filtroActivo]);
 
-  const handleEliminarEgreso = async (egresoId: number) => {
-    if (!confirm("¿Estás seguro de eliminar este egreso?")) {
+  const handleMarcarPagado = async (egresoId: number) => {
+    if (!confirm("¿Marcar este egreso como pagado?")) {
+      return;
+    }
+
+    try {
+      await marcarEgresoPagado(egresoId);
+      alert("✅ Egreso marcado como pagado");
+      cargarEgresos();
+    } catch (e: any) {
+      alert(`❌ Error: ${e.message}`);
+    }
+  };
+
+  const handleEliminar = async (egresoId: number) => {
+    if (!confirm("¿Estás seguro de eliminar este egreso y su cuenta por pagar asociada?")) {
       return;
     }
 
@@ -555,17 +603,6 @@ export default function Egresos() {
   };
 
   const totalEgresos = egresos.reduce((sum, e) => sum + e.monto, 0);
-
-  // Agrupar por tipo
-  const egresosPorTipo = egresos.reduce((acc, egreso) => {
-    const tipo = egreso.tipo_egreso_name || 'Sin tipo';
-    if (!acc[tipo]) {
-      acc[tipo] = { count: 0, total: 0 };
-    }
-    acc[tipo].count++;
-    acc[tipo].total += egreso.monto;
-    return acc;
-  }, {} as Record<string, { count: number; total: number }>);
 
   return (
     <div style={{
@@ -633,7 +670,7 @@ export default function Egresos() {
               fontSize: '1.1rem',
               margin: 0
             }}>
-              Registra y administra los gastos del negocio
+              Registro y control de egresos del negocio
             </p>
           </div>
 
@@ -651,8 +688,6 @@ export default function Egresos() {
                 cursor: 'pointer',
                 transition: 'all 0.3s ease'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.3)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'}
             >
               🏷️ Nuevo Tipo
             </button>
@@ -673,14 +708,6 @@ export default function Egresos() {
                 gap: '10px',
                 transition: 'all 0.3s ease',
                 boxShadow: '0 4px 15px rgba(239, 68, 68, 0.3)'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 8px 25px rgba(239, 68, 68, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(239, 68, 68, 0.3)';
               }}
             >
               <span style={{ fontSize: '1.3rem' }}>💸</span>
@@ -705,10 +732,12 @@ export default function Egresos() {
             textAlign: 'center'
           }}>
             <div style={{ fontSize: '2rem', marginBottom: '10px' }}>💸</div>
-            <div style={{ color: 'white', fontSize: '1.8rem', fontWeight: '700' }}>
+            <div style={{ color: '#ef4444', fontSize: '1.8rem', fontWeight: '700' }}>
               {formatCurrency(totalEgresos)}
             </div>
-            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Total en Egresos</div>
+            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
+              {filtroActivo ? `Total del mes` : 'Total Histórico'}
+            </div>
           </div>
 
           <div style={{
@@ -734,11 +763,11 @@ export default function Egresos() {
             backdropFilter: 'blur(10px)',
             textAlign: 'center'
           }}>
-            <div style={{ fontSize: '2rem', marginBottom: '10px' }}>🏷️</div>
+            <div style={{ fontSize: '2rem', marginBottom: '10px' }}>📊</div>
             <div style={{ color: 'white', fontSize: '1.8rem', fontWeight: '700' }}>
-              {Object.keys(egresosPorTipo).length}
+              {egresos.length > 0 ? formatCurrency(totalEgresos / egresos.length) : 'S/ 0.00'}
             </div>
-            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Tipos de Egresos</div>
+            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Promedio por Egreso</div>
           </div>
         </div>
 
@@ -765,11 +794,8 @@ export default function Egresos() {
                 borderRadius: '8px',
                 color: 'white',
                 fontSize: '1.2rem',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease'
+                cursor: 'pointer'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
             >
               ←
             </button>
@@ -793,14 +819,7 @@ export default function Egresos() {
                 borderRadius: '8px',
                 color: mesActual >= new Date() ? '#64748b' : 'white',
                 fontSize: '1.2rem',
-                cursor: mesActual >= new Date() ? 'not-allowed' : 'pointer',
-                transition: 'all 0.3s ease'
-              }}
-              onMouseEnter={(e) => {
-                if (mesActual < new Date()) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-              }}
-              onMouseLeave={(e) => {
-                if (mesActual < new Date()) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                cursor: mesActual >= new Date() ? 'not-allowed' : 'pointer'
               }}
             >
               →
@@ -920,7 +939,12 @@ export default function Egresos() {
             }}>
               <div style={{ fontSize: '64px', marginBottom: '20px' }}>💸</div>
               <h3 style={{ color: 'white', margin: '0 0 10px 0' }}>No hay egresos registrados</h3>
-              <p>Comienza registrando tu primer egreso</p>
+              <p>
+                {filtroActivo 
+                  ? 'No se encontraron egresos en este mes' 
+                  : 'Comienza registrando tu primer egreso'
+                }
+              </p>
             </div>
           ) : (
             <div style={{ display: 'grid', gap: '16px' }}>
@@ -928,19 +952,15 @@ export default function Egresos() {
                 <div
                   key={egreso.id}
                   style={{
-                    background: 'rgba(255, 255, 255, 0.03)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    background: egreso.pagado 
+                      ? 'rgba(16, 185, 129, 0.05)' 
+                      : 'rgba(255, 255, 255, 0.03)',
+                    border: egreso.pagado 
+                      ? '1px solid rgba(16, 185, 129, 0.2)' 
+                      : '1px solid rgba(255, 255, 255, 0.1)',
                     borderRadius: '12px',
                     padding: '20px',
                     transition: 'all 0.3s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
-                    e.currentTarget.style.transform = 'translateY(0)';
                   }}
                 >
                   <div style={{
@@ -949,43 +969,44 @@ export default function Egresos() {
                     justifyContent: 'space-between'
                   }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        marginBottom: '8px'
+                      <h4 style={{
+                        color: 'white',
+                        fontSize: '1.2rem',
+                        fontWeight: '600',
+                        margin: '0 0 8px 0'
                       }}>
-                        <span style={{
-                          background: 'rgba(239, 68, 68, 0.2)',
-                          color: '#fca5a5',
-                          padding: '4px 10px',
-                          borderRadius: '6px',
-                          fontSize: '0.8rem',
-                          fontWeight: '600'
-                        }}>
-                          {egreso.tipo_egreso_name || 'Sin tipo'}
-                        </span>
-                        {egreso.descripcion && (
-                          <h4 style={{
-                            color: 'white',
-                            fontSize: '1.1rem',
-                            fontWeight: '600',
-                            margin: 0
-                          }}>
-                            {egreso.descripcion}
-                          </h4>
-                        )}
-                      </div>
+                        {egreso.descripcion || egreso.tipo_egreso_name || 'Sin descripción'}
+                      </h4>
                       
                       <div style={{
                         display: 'flex',
                         gap: '20px',
                         color: '#94a3b8',
-                        fontSize: '0.9rem'
+                        fontSize: '0.9rem',
+                        marginBottom: '4px'
                       }}>
-                        <span>📅 {egreso.fecha}</span>
-                        <span>🆔 Egreso #{egreso.id}</span>
+                        <span>📅 Fecha: {formatearFecha(egreso.fecha)}</span>
+                        {egreso.fecha_pago && (
+                          <span style={{ color: '#86efac' }}>
+                            ✅ Fecha de pago: {formatearFecha(egreso.fecha_pago)}
+                          </span>
+                        )}
                       </div>
+
+                      {egreso.origen === 'pedido_proveedor' && (
+                        <div style={{
+                          display: 'inline-block',
+                          background: 'rgba(245, 158, 11, 0.2)',
+                          color: '#fbbf24',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '0.75rem',
+                          fontWeight: '600',
+                          marginTop: '8px'
+                        }}>
+                          📦 Pedido automático
+                        </div>
+                      )}
                     </div>
                     
                     <div style={{
@@ -1002,29 +1023,66 @@ export default function Egresos() {
                           Monto
                         </div>
                         <div style={{
-                          color: '#ef4444',
+                          color: egreso.pagado ? '#86efac' : '#ef4444',
                           fontWeight: '700',
-                          fontSize: '1.3rem'
+                          fontSize: '1.5rem'
                         }}>
                           {formatCurrency(egreso.monto)}
                         </div>
                       </div>
 
-                      <button
-                        onClick={() => handleEliminarEgreso(egreso.id)}
-                        style={{
-                          padding: '8px 16px',
-                          background: 'rgba(239, 68, 68, 0.2)',
-                          border: '1px solid rgba(239, 68, 68, 0.3)',
-                          borderRadius: '8px',
-                          color: '#ef4444',
-                          fontSize: '0.85rem',
-                          fontWeight: '600',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        🗑️ Eliminar
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        {!egreso.pagado && (
+                          <button
+                            onClick={() => handleMarcarPagado(egreso.id)}
+                            style={{
+                              padding: '8px 16px',
+                              background: 'linear-gradient(135deg, #10b981 0%, #047857 100%)',
+                              border: 'none',
+                              borderRadius: '8px',
+                              color: 'white',
+                              fontSize: '0.85rem',
+                              fontWeight: '600',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            ✓ Pagado
+                          </button>
+                        )}
+
+                        {egreso.pagado && (
+                          <div style={{
+                            padding: '8px 16px',
+                            background: 'rgba(16, 185, 129, 0.2)',
+                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                            borderRadius: '8px',
+                            color: '#86efac',
+                            fontSize: '0.85rem',
+                            fontWeight: '600'
+                          }}>
+                            ✅ Pagado
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => handleEliminar(egreso.id)}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'rgba(239, 68, 68, 0.2)',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            borderRadius: '8px',
+                            color: '#ef4444',
+                            fontSize: '0.85rem',
+                            fontWeight: '600',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          🗑️ Eliminar
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1032,65 +1090,6 @@ export default function Egresos() {
             </div>
           )}
         </div>
-
-        {/* Resumen por Tipo */}
-        {Object.keys(egresosPorTipo).length > 0 && (
-          <div style={{
-            background: 'rgba(255, 255, 255, 0.05)',
-            borderRadius: '20px',
-            padding: '30px',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            backdropFilter: 'blur(10px)',
-            marginTop: '30px'
-          }}>
-            <h3 style={{
-              color: 'white',
-              fontSize: '1.5rem',
-              fontWeight: '700',
-              marginBottom: '20px'
-            }}>
-              Resumen por Tipo
-            </h3>
-            
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-              gap: '15px'
-            }}>
-              {Object.entries(egresosPorTipo).map(([tipo, data]) => (
-                <div key={tipo} style={{
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  borderRadius: '12px',
-                  padding: '20px',
-                  border: '1px solid rgba(239, 68, 68, 0.2)'
-                }}>
-                  <div style={{
-                    color: 'white',
-                    fontSize: '1.1rem',
-                    fontWeight: '600',
-                    marginBottom: '8px'
-                  }}>
-                    {tipo}
-                  </div>
-                  <div style={{
-                    color: '#ef4444',
-                    fontSize: '1.5rem',
-                    fontWeight: '700',
-                    marginBottom: '4px'
-                  }}>
-                    {formatCurrency(data.total)}
-                  </div>
-                  <div style={{
-                    color: '#94a3b8',
-                    fontSize: '0.85rem'
-                  }}>
-                    {data.count} egreso{data.count !== 1 ? 's' : ''}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       <style>{`
