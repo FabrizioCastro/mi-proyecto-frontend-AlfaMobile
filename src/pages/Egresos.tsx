@@ -7,8 +7,8 @@ type TipoEgresoAPI = {
   descripcion?: string;
 };
 
-type EgresoAPI = {
-  id: number;
+export type EgresoAPI = {
+ id: number;
   tipo_egreso_id: number;
   tipo_egreso_name?: string;
   monto: number;
@@ -17,10 +17,16 @@ type EgresoAPI = {
   origen?: string;
   pagado?: boolean;
   fecha_pago?: string;
+  numero_pedido?: string;
+  proveedor_name?: string;
+  eliminado?: boolean;          // 👈 AGREGAR ESTA LÍNEA
   created_at: string;
 };
 
+
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+
 
 async function listarTiposEgreso(): Promise<TipoEgresoAPI[]> {
   const r = await fetch(`${BASE}/api/tipos-egreso`);
@@ -38,12 +44,13 @@ async function crearTipoEgreso(data: { name: string; descripcion?: string }): Pr
   return r.json();
 }
 
-async function listarEgresos(filtros?: { desde?: string; hasta?: string }): Promise<EgresoAPI[]> {
+async function listarEgresos(filtros?: { desde?: string; hasta?: string; incluir_eliminados?: boolean }): Promise<EgresoAPI[]> {
   let url = `${BASE}/api/egresos`;
   const params = new URLSearchParams();
   
   if (filtros?.desde) params.append('desde', filtros.desde);
   if (filtros?.hasta) params.append('hasta', filtros.hasta);
+  if (filtros?.incluir_eliminados) params.append('incluir_eliminados', 'true');
   
   if (params.toString()) url += `?${params.toString()}`;
   
@@ -84,14 +91,52 @@ async function marcarEgresoPagado(id: number): Promise<{ message: string; fecha_
   return r.json();
 }
 
+// En egresos.tsx, después de las funciones existentes (marcarEgresoPagado, eliminarEgreso, etc.)
+
+async function desmarcarEgresoPagado(id: number): Promise<{ message: string }> {
+  const r = await fetch(`${BASE}/api/egresos/${id}/desmarcar-pago`, {
+    method: "PUT",
+  });
+  if (!r.ok) throw new Error('Error al desmarcar como pagado');
+  return r.json();
+}
+
+async function recuperarEgresoEliminado(id: number): Promise<{ message: string }> {
+  const r = await fetch(`${BASE}/api/egresos/${id}/recuperar`, {
+    method: "PUT",
+  });
+  if (!r.ok) throw new Error('Error al recuperar egreso');
+  return r.json();
+}
+
 const formatCurrency = (value: number | string) => {
   const num = typeof value === 'string' ? parseFloat(value) : value;
   return `S/ ${(num || 0).toFixed(2)}`;
 };
 
-const formatearFecha = (fecha: string) => {
-  const [year, month, day] = fecha.split('-');
-  return `${day}/${month}/${year}`;
+const formatearFecha = (fecha: string | null | undefined) => {
+  if (!fecha) return 'Sin fecha';
+  
+  try {
+    // Si la fecha viene con hora (timestamp), la limpiamos
+    const fechaLimpia = fecha.split('T')[0];
+    const [year, month, day] = fechaLimpia.split('-');
+    
+    // Validar que tenemos los 3 componentes
+    if (!year || !month || !day) return 'Fecha inválida';
+    
+    const meses = [
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
+    ];
+    
+    const mesTexto = meses[parseInt(month) - 1];
+    
+    return `${parseInt(day)} ${mesTexto} ${year}`;
+  } catch (e) {
+    console.error('Error formateando fecha:', fecha, e);
+    return 'Fecha inválida';
+  }
 };
 
 const obtenerPrimerDiaDelMes = (fecha: Date) => {
@@ -105,6 +150,9 @@ const obtenerUltimoDiaDelMes = (fecha: Date) => {
 const formatearMesAnio = (fecha: Date) => {
   return fecha.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase());
 };
+
+
+
 
 // ==================== MODAL NUEVO TIPO EGRESO ====================
 const ModalNuevoTipoEgreso = ({ onClose, onCreado }: { onClose: () => void; onCreado: () => void }) => {
@@ -547,13 +595,16 @@ export default function Egresos() {
   
   const [mesActual, setMesActual] = useState(new Date());
   const [filtroActivo, setFiltroActivo] = useState(true);
+  const [mostrarEliminados, setMostrarEliminados] = useState(false);
 
-  async function cargarEgresos() {
+   async function cargarEgresos() {
     try {
       setLoading(true);
       setError(null);
       
-      let filtros: { desde?: string; hasta?: string } = {};
+      let filtros: { desde?: string; hasta?: string; incluir_eliminados?: boolean } = {
+        incluir_eliminados: mostrarEliminados
+      };
       
       if (filtroActivo) {
         filtros.desde = obtenerPrimerDiaDelMes(mesActual);
@@ -569,10 +620,9 @@ export default function Egresos() {
       setLoading(false);
     }
   }
-
-  useEffect(() => {
+   useEffect(() => {
     cargarEgresos();
-  }, [mesActual, filtroActivo]);
+  }, [mesActual, filtroActivo, mostrarEliminados]);
 
   const handleMarcarPagado = async (egresoId: number) => {
     if (!confirm("¿Marcar este egreso como pagado?")) {
@@ -602,7 +652,40 @@ export default function Egresos() {
     }
   };
 
-  const totalEgresos = egresos.reduce((sum, e) => sum + e.monto, 0);
+  const handleDesmarcarPagado = async (egresoId: number) => {
+    if (!confirm("¿Desmarcar este egreso como pagado? Volverá a estar pendiente.")) {
+      return;
+    }
+    try {
+      await desmarcarEgresoPagado(egresoId);
+      alert("✅ Egreso desmarcado como pagado");
+      cargarEgresos();
+    } catch (e: any) {
+      alert(`❌ Error: ${e.message}`);
+    }
+  };
+
+  const handleRecuperarEgreso = async (egresoId: number) => {
+    if (!confirm("¿Recuperar este egreso?")) {
+      return;
+    }
+    try {
+      await recuperarEgresoEliminado(egresoId);
+      alert("✅ Egreso recuperado correctamente");
+      cargarEgresos();
+    } catch (e: any) {
+      alert(`❌ Error: ${e.message}`);
+    }
+  };
+
+
+  const egresosActivos = egresos.filter(e => !e.eliminado);
+const totalEgresos = egresosActivos.reduce((sum, e) => sum + e.monto, 0);
+
+const egresosPagados = egresosActivos.filter(e => e.pagado);
+const egresosPendientes = egresosActivos.filter(e => !e.pagado);
+const totalPagado = egresosPagados.reduce((sum, e) => sum + e.monto, 0);
+const totalPendiente = egresosPendientes.reduce((sum, e) => sum + e.monto, 0);
 
   return (
     <div style={{
@@ -716,10 +799,10 @@ export default function Egresos() {
           </div>
         </div>
 
-        {/* Estadísticas */}
+                {/* Estadísticas ACTUALIZADAS */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
           gap: '20px',
           marginBottom: '40px'
         }}>
@@ -736,7 +819,41 @@ export default function Egresos() {
               {formatCurrency(totalEgresos)}
             </div>
             <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
-              {filtroActivo ? `Total del mes` : 'Total Histórico'}
+              Total en Egresos
+            </div>
+          </div>
+
+          <div style={{
+            background: 'rgba(16, 185, 129, 0.1)',
+            borderRadius: '16px',
+            padding: '25px',
+            border: '1px solid rgba(16, 185, 129, 0.2)',
+            backdropFilter: 'blur(10px)',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '2rem', marginBottom: '10px' }}>✅</div>
+            <div style={{ color: '#86efac', fontSize: '1.8rem', fontWeight: '700' }}>
+              {formatCurrency(totalPagado)}
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
+              Pagado ({egresosPagados.length})
+            </div>
+          </div>
+
+          <div style={{
+            background: 'rgba(245, 158, 11, 0.1)',
+            borderRadius: '16px',
+            padding: '25px',
+            border: '1px solid rgba(245, 158, 11, 0.2)',
+            backdropFilter: 'blur(10px)',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '2rem', marginBottom: '10px' }}>⏳</div>
+            <div style={{ color: '#fbbf24', fontSize: '1.8rem', fontWeight: '700' }}>
+              {formatCurrency(totalPendiente)}
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
+              Pendiente ({egresosPendientes.length})
             </div>
           </div>
 
@@ -799,6 +916,7 @@ export default function Egresos() {
             >
               ←
             </button>
+             
             
             <div style={{ textAlign: 'center' }}>
               <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '4px' }}>
@@ -827,6 +945,8 @@ export default function Egresos() {
           </div>
 
           <div style={{ display: 'flex', gap: '10px' }}>
+
+
             <button
               onClick={() => setMesActual(new Date())}
               style={{
@@ -841,6 +961,21 @@ export default function Egresos() {
               }}
             >
               📅 Mes Actual
+            </button>
+            <button
+              onClick={() => setMostrarEliminados(!mostrarEliminados)}
+              style={{
+                padding: '8px 16px',
+                background: mostrarEliminados ? 'rgba(239, 68, 68, 0.2)' : 'rgba(100, 116, 139, 0.2)',
+                border: mostrarEliminados ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(100, 116, 139, 0.3)',
+                borderRadius: '8px',
+                color: mostrarEliminados ? '#ef4444' : '#94a3b8',
+                fontSize: '0.85rem',
+                fontWeight: '600',
+                cursor: 'pointer'
+              }}
+            >
+              {mostrarEliminados ? '👁️ Ocultando Eliminados' : '🗑️ Ver Eliminados'}
             </button>
             
             <button
@@ -949,47 +1084,99 @@ export default function Egresos() {
           ) : (
             <div style={{ display: 'grid', gap: '16px' }}>
               {egresos.map((egreso) => (
-                <div
-                  key={egreso.id}
-                  style={{
-                    background: egreso.pagado 
-                      ? 'rgba(16, 185, 129, 0.05)' 
-                      : 'rgba(255, 255, 255, 0.03)',
-                    border: egreso.pagado 
-                      ? '1px solid rgba(16, 185, 129, 0.2)' 
-                      : '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '12px',
-                    padding: '20px',
-                    transition: 'all 0.3s ease'
-                  }}
-                >
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between'
-                  }}>
-                    <div style={{ flex: 1 }}>
-                      <h4 style={{
-                        color: 'white',
-                        fontSize: '1.2rem',
-                        fontWeight: '600',
-                        margin: '0 0 8px 0'
-                      }}>
-                        {egreso.descripcion || egreso.tipo_egreso_name || 'Sin descripción'}
-                      </h4>
-                      
-                      <div style={{
-                        display: 'flex',
-                        gap: '20px',
-                        color: '#94a3b8',
-                        fontSize: '0.9rem',
-                        marginBottom: '4px'
-                      }}>
-                        <span>📅 Fecha: {formatearFecha(egreso.fecha)}</span>
-                        {egreso.fecha_pago && (
-                          <span style={{ color: '#86efac' }}>
-                            ✅ Fecha de pago: {formatearFecha(egreso.fecha_pago)}
-                          </span>
+  <div
+    key={egreso.id}
+    style={{
+      background: egreso.eliminado 
+        ? 'rgba(239, 68, 68, 0.05)'
+        : egreso.pagado 
+          ? 'rgba(16, 185, 129, 0.05)' 
+          : 'rgba(255, 255, 255, 0.03)',
+      border: egreso.eliminado
+        ? '1px solid rgba(239, 68, 68, 0.2)'
+        : egreso.pagado 
+          ? '1px solid rgba(16, 185, 129, 0.2)' 
+          : '1px solid rgba(255, 255, 255, 0.1)',
+      borderRadius: '12px',
+      padding: '20px',
+      transition: 'all 0.3s ease'
+    }}
+  >
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between'
+    }}>
+      <div style={{ flex: 1 }}>
+        <h4 style={{
+          color: 'white',
+          fontSize: '1.2rem',
+          fontWeight: '600',
+          margin: '0 0 8px 0'
+        }}>
+          {egreso.descripcion || egreso.tipo_egreso_name || 'Sin descripción'}
+        </h4>
+
+         {egreso.eliminado && (
+          <span style={{
+            background: 'rgba(239, 68, 68, 0.2)',
+            color: '#ef4444',
+            padding: '4px 10px',
+            borderRadius: '6px',
+            fontSize: '0.85rem',
+            fontWeight: '600',
+            marginRight: '10px'
+          }}>
+            🗑️ ELIMINADO
+          </span>
+        )}
+
+        {/* 👇 NUEVO: Mostrar proveedor y número de pedido */}
+        {egreso.origen === 'pedido_proveedor' && (
+          <div style={{
+            display: 'flex',
+            gap: '10px',
+            marginBottom: '8px'
+          }}>
+            {egreso.numero_pedido && (
+              <span style={{
+                background: 'rgba(245, 158, 11, 0.2)',
+                color: '#fbbf24',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '0.85rem',
+                fontWeight: '600'
+              }}>
+                📦 {egreso.numero_pedido}
+              </span>
+            )}
+            {egreso.proveedor_name && (
+              <span style={{
+                background: 'rgba(59, 130, 246, 0.2)',
+                color: '#60a5fa',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '0.85rem',
+                fontWeight: '600'
+              }}>
+                🏢 {egreso.proveedor_name}
+              </span>
+            )}
+          </div>
+        )}
+        
+        <div style={{
+          display: 'flex',
+          gap: '20px',
+          color: '#94a3b8',
+          fontSize: '0.9rem',
+          marginBottom: '4px'
+        }}>
+          <span>📅 Fecha: {formatearFecha(egreso.fecha)}</span>
+          {egreso.fecha_pago && (
+            <span style={{ color: '#86efac' }}>
+              ✅ Fecha de pago: {formatearFecha(egreso.fecha_pago)}
+            </span>
                         )}
                       </div>
 
@@ -1031,57 +1218,80 @@ export default function Egresos() {
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        {!egreso.pagado && (
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {egreso.eliminado ? (
+                          // Si está eliminado, solo mostrar botón de recuperar
                           <button
-                            onClick={() => handleMarcarPagado(egreso.id)}
+                            onClick={() => handleRecuperarEgreso(egreso.id)}
                             style={{
                               padding: '8px 16px',
-                              background: 'linear-gradient(135deg, #10b981 0%, #047857 100%)',
-                              border: 'none',
+                              background: 'rgba(34, 197, 94, 0.2)',
+                              border: '1px solid rgba(34, 197, 94, 0.3)',
                               borderRadius: '8px',
-                              color: 'white',
+                              color: '#86efac',
                               fontSize: '0.85rem',
                               fontWeight: '600',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px'
+                              cursor: 'pointer'
                             }}
                           >
-                            ✓ Pagado
+                            ♻️ Recuperar
                           </button>
-                        )}
+                        ) : (
+                          // Si NO está eliminado, mostrar botones normales
+                          <>
+                            {egreso.pagado ? (
+                              // Si está pagado, botón para desmarcar
+                              <button
+                                onClick={() => handleDesmarcarPagado(egreso.id)}
+                                style={{
+                                  padding: '8px 16px',
+                                  background: 'rgba(245, 158, 11, 0.2)',
+                                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                                  borderRadius: '8px',
+                                  color: '#fbbf24',
+                                  fontSize: '0.85rem',
+                                  fontWeight: '600',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ↩️ Desmarcar Pago
+                              </button>
+                            ) : (
+                              // Si NO está pagado, botón para marcar como pagado
+                              <button
+                                onClick={() => handleMarcarPagado(egreso.id)}
+                                style={{
+                                  padding: '8px 16px',
+                                  background: 'linear-gradient(135deg, #10b981 0%, #047857 100%)',
+                                  border: 'none',
+                                  borderRadius: '8px',
+                                  color: 'white',
+                                  fontSize: '0.85rem',
+                                  fontWeight: '600',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ✓ Pagado
+                              </button>
+                            )}
 
-                        {egreso.pagado && (
-                          <div style={{
-                            padding: '8px 16px',
-                            background: 'rgba(16, 185, 129, 0.2)',
-                            border: '1px solid rgba(16, 185, 129, 0.3)',
-                            borderRadius: '8px',
-                            color: '#86efac',
-                            fontSize: '0.85rem',
-                            fontWeight: '600'
-                          }}>
-                            ✅ Pagado
-                          </div>
+                            <button
+                              onClick={() => handleEliminar(egreso.id)}
+                              style={{
+                                padding: '8px 16px',
+                                background: 'rgba(239, 68, 68, 0.2)',
+                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                                borderRadius: '8px',
+                                color: '#ef4444',
+                                fontSize: '0.85rem',
+                                fontWeight: '600',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              🗑️ Eliminar
+                            </button>
+                          </>
                         )}
-
-                        <button
-                          onClick={() => handleEliminar(egreso.id)}
-                          style={{
-                            padding: '8px 16px',
-                            background: 'rgba(239, 68, 68, 0.2)',
-                            border: '1px solid rgba(239, 68, 68, 0.3)',
-                            borderRadius: '8px',
-                            color: '#ef4444',
-                            fontSize: '0.85rem',
-                            fontWeight: '600',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          🗑️ Eliminar
-                        </button>
                       </div>
                     </div>
                   </div>

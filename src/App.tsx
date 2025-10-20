@@ -15,12 +15,15 @@ import Ventas from './pages/Ventas';
 import Egresos from './pages/Egresos';
 import CuentasPorPagar from './pages/CuentasPorPagar';;
 import AlertaCuentasPendientes from './components/AltertaCuentasPendientes';
-
+import CuentasPorCobrar from './pages/CuentasPorCobrar';
+import AlertaCuentasPorCobrar from './components/AlertaCuentasPorCobrar';
+import ComparativoFinanciero from './pages/ComparativoFinanciero';
+import ComparativoVentas from './pages/ComparativoVentas';
 function App() {
   return (
     <BrowserRouter>
       <AlertaCuentasPendientes />
-      
+      <AlertaCuentasPorCobrar />
       <Routes>
         <Route path="/login" element={<Login />} />
         
@@ -41,6 +44,9 @@ function App() {
           <Route path="ventas" element={<Ventas />} />
           <Route path="egresos" element={<Egresos />} />
           <Route path="cuentas-por-pagar" element={<CuentasPorPagar />} />
+          <Route path ="cuentas-por-cobrar" element = {<CuentasPorCobrar/>} />
+          <Route path ="balance-comparativo" element = {<ComparativoFinanciero/>} />
+          <Route path = "comparar-ventas" element = {<ComparativoVentas/>} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -391,6 +391,208 @@ export async function listarInventarioJerarquico(q?: string): Promise<MarcaInven
   return jget<MarcaInventario[]>(url);
 }
 
+// ===================== CUENTAS POR COBRAR =====================
+export type CuentaPorCobrarAPI = {
+  id: number;
+  venta_id: number;
+  cliente_id: number;
+  cliente_name?: string;
+  cliente_email?: string;
+  cliente_phone?: string;
+  monto: number;
+  fecha_registro: string;
+  fecha_vencimiento?: string;
+  fecha_cobro?: string;
+  cobrado: boolean;
+  descripcion?: string;
+  fecha_venta?: string;
+  created_at: string;
+};
+
+export type VentaDetalladaAPI = {
+  id: number;
+  cliente_id: number;
+  cliente_name?: string;
+  cliente_dni?: string;
+  date_order: string;
+  amount_total: number;
+  total_real: number;
+  state: string;
+  productos_count: number;
+  pagado: boolean;
+  fecha_pago?: string | null;
+  anulado: boolean;              // 👈 AGREGAR
+  created_at: string;
+};
+
+export type VentaDetalleItemAPI = {
+  id: number;
+  venta_id: number;
+  producto_detallado_id: number;
+  precio_venta: number;
+  costo: number;
+  margen: number;
+  marca: string;
+  modelo: string;
+  imei_1: string;
+  imei_2?: string;
+  proveedor?: string;
+};
+
+export async function listarVentasDetalladas(filtros?: { 
+  desde?: string; 
+  hasta?: string;
+  cliente_id?: number;
+  incluir_anuladas?: boolean;
+}): Promise<VentaDetalladaAPI[]> {
+  let url = `${BASE}/api/ventas`;
+  const params = new URLSearchParams();
+  
+  if (filtros?.desde) params.append('desde', filtros.desde);
+  if (filtros?.hasta) params.append('hasta', filtros.hasta);
+  if (filtros?.cliente_id) params.append('cliente_id', filtros.cliente_id.toString());
+  if (filtros?.incluir_anuladas) params.append('incluir_anuladas', 'true');
+  
+  if (params.toString()) url += `?${params.toString()}`;
+  
+  return jget<VentaDetalladaAPI[]>(url);
+}
+
+
+export async function obtenerDetalleVenta(ventaId: number): Promise<VentaDetalleItemAPI[]> {
+  return jget<VentaDetalleItemAPI[]>(`${BASE}/api/ventas/${ventaId}/detalle`);
+}
+
+export async function crearVentaDetallada(data: {
+  cliente_id: number;
+  date_order: string;
+  productos: Array<{
+    producto_detallado_id: number;
+    precio_venta: number;
+  }>;
+  fecha_vencimiento?: string;
+}): Promise<{ id: number; message: string; total: number }> {
+  return jpost(`${BASE}/api/ventas`, data);
+}
+
+export async function anularVenta(ventaId: number): Promise<{ message: string }> {
+  const r = await fetch(`${BASE}/api/ventas/${ventaId}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+// ===================== REVERSIONES PARA VENTAS =====================
+
+export async function desmarcarVentaPagada(ventaId: number): Promise<{ message: string }> {
+  return jput(`${BASE}/api/ventas/${ventaId}/desmarcar-pago`, {});
+}
+
+export async function recuperarVentaAnulada(ventaId: number): Promise<{ message: string }> {
+  return jput(`${BASE}/api/ventas/${ventaId}/recuperar`, {});
+}
+
+// ===================== REVERSIONES PARA EGRESOS =====================
+
+export async function desmarcarEgresoPagado(egresoId: number): Promise<{ message: string }> {
+  return jput(`${BASE}/api/egresos/${egresoId}/desmarcar-pago`, {});
+}
+
+export async function recuperarEgresoEliminado(egresoId: number): Promise<{ message: string }> {
+  return jput(`${BASE}/api/egresos/${egresoId}/recuperar`, {});
+}
+
+// 👇 NUEVA FUNCIÓN: Marcar venta como pagada
+export async function marcarVentaComoPagada(ventaId: number): Promise<{ message: string; fecha_pago: string }> {
+  return jput(`${BASE}/api/ventas/${ventaId}/pagar`, {});
+}
+
+
+export async function listarCuentasPorCobrar(pendientes?: boolean): Promise<CuentaPorCobrarAPI[]> {
+  let url = `${BASE}/api/cuentas-por-cobrar`;
+  if (pendientes) url += '?pendientes=true';
+  return jget<CuentaPorCobrarAPI[]>(url);
+}
+
+export async function marcarComoCobrado(cuentaId: number): Promise<{ message: string; fecha_cobro: string }> {
+  return jput(`${BASE}/api/cuentas-por-cobrar/${cuentaId}/cobrar`, {});
+}
+
+// ===================== AGREGAR AL FINAL DE api.ts =====================
+
+// ===================== COMPARATIVO FINANCIERO =====================
+export type PeriodoComparativo = {
+  periodo: string;
+  ingresos: number;
+  cantidad_ventas: number;
+  egresos: number;
+  cantidad_egresos: number;
+  utilidad: number;
+};
+
+export type ComparativoFinanciero = {
+  agrupacion: 'dia' | 'mes' | 'año';
+  desde: string;
+  hasta: string;
+  periodos: PeriodoComparativo[];
+  totales: {
+    ingresos_totales: number;
+    egresos_totales: number;
+    utilidad_total: number;
+    total_ventas: number;
+    total_egresos: number;
+  };
+  mejorPeriodo: PeriodoComparativo | null;
+  peorPeriodo: PeriodoComparativo | null;
+};
+
+export async function obtenerComparativoFinanciero(
+  desde: string,
+  hasta: string,
+  agrupacion: 'dia' | 'mes' | 'año' = 'mes'
+): Promise<ComparativoFinanciero> {
+  const url = `${BASE}/api/comparativo-financiero?desde=${desde}&hasta=${hasta}&agrupacion=${agrupacion}`;
+  return jget<ComparativoFinanciero>(url);
+}
+
+// ===================== AGREGAR AL FINAL DE TU api.ts =====================
+
+// ===================== COMPARATIVO DE VENTAS =====================
+export type ResultadoVentasPeriodo = {
+  total_ventas: number;
+  cantidad_ventas: number;
+  ticket_promedio: number;
+};
+
+export type ComparativoVentas = {
+  periodo1: {
+    label: string;
+    datos: ResultadoVentasPeriodo;
+  };
+  periodo2: {
+    label: string;
+    datos: ResultadoVentasPeriodo;
+  };
+  diferencia: {
+    total_ventas: number;
+    cantidad_ventas: number;
+    ticket_promedio: number;
+  };
+};
+
+export async function compararVentas(
+  fecha1_desde: string,
+  fecha1_hasta: string,
+  fecha2_desde: string,
+  fecha2_hasta: string
+): Promise<ComparativoVentas> {
+  const url = `${BASE}/api/comparar-ventas?fecha1_desde=${fecha1_desde}&fecha1_hasta=${fecha1_hasta}&fecha2_desde=${fecha2_desde}&fecha2_hasta=${fecha2_hasta}`;
+  return jget<ComparativoVentas>(url);
+}
+
+
+
 /* ========== PING ========== */
 export async function ping(): Promise<{ ok: boolean }> {
   return jget(`${BASE}/api/ping`);
