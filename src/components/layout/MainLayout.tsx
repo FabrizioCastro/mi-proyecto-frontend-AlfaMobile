@@ -1,6 +1,7 @@
 import React from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
+import Header from './Header';  // 👈 IMPORTAR EL HEADER
 
 const MainLayout: React.FC = () => {
   return (
@@ -18,9 +19,19 @@ const MainLayout: React.FC = () => {
         marginLeft: '350px',
         minHeight: '100vh',
         position: 'relative',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column'  // 👈 AGREGAR ESTO
       }}>
         
+        {/* 👇 AGREGAR EL HEADER AQUÍ */}
+        <div style={{
+          position: 'relative',
+          zIndex: 10
+        }}>
+          <Header />
+        </div>
+
         {/* Fondo Espectacular para el contenido */}
         <div style={{
           position: 'fixed',
@@ -90,14 +101,13 @@ const MainLayout: React.FC = () => {
               filter: 'blur(30px)'
             }}></div>
           </div>
-
-          
         </div>
 
         {/* Contenido de las páginas */}
         <div style={{
           position: 'relative',
           zIndex: 2,
+          flex: 1,  // 👈 AGREGAR ESTO
           minHeight: '100vh'
         }}>
           <Outlet />

@@ -13,23 +13,28 @@ import Marcas from './pages/Marcas';
 import Modelos from './pages/Modelos';
 import Ventas from './pages/Ventas';
 import Egresos from './pages/Egresos';
-import CuentasPorPagar from './pages/CuentasPorPagar';;
+import CuentasPorPagar from './pages/CuentasPorPagar';
 import AlertaCuentasPendientes from './components/AltertaCuentasPendientes';
 import CuentasPorCobrar from './pages/CuentasPorCobrar';
 import AlertaCuentasPorCobrar from './components/AlertaCuentasPorCobrar';
 import ComparativoFinanciero from './pages/ComparativoFinanciero';
 import ComparativoVentas from './pages/ComparativoVentas';
+
 function App() {
   return (
     <BrowserRouter>
-      <AlertaCuentasPendientes />
-      <AlertaCuentasPorCobrar />
       <Routes>
+        {/* Ruta pública de login */}
         <Route path="/login" element={<Login />} />
         
+        {/* TODAS las demás rutas protegidas */}
         <Route path="/" element={
           <ProtectedRoute>
-            <MainLayout />
+            <>
+              <AlertaCuentasPendientes />
+              <AlertaCuentasPorCobrar />
+              <MainLayout />
+            </>
           </ProtectedRoute>
         }>
           <Route index element={<Home />} />
@@ -44,11 +49,12 @@ function App() {
           <Route path="ventas" element={<Ventas />} />
           <Route path="egresos" element={<Egresos />} />
           <Route path="cuentas-por-pagar" element={<CuentasPorPagar />} />
-          <Route path ="cuentas-por-cobrar" element = {<CuentasPorCobrar/>} />
-          <Route path ="balance-comparativo" element = {<ComparativoFinanciero/>} />
-          <Route path = "comparar-ventas" element = {<ComparativoVentas/>} />
+          <Route path="cuentas-por-cobrar" element={<CuentasPorCobrar />} />
+          <Route path="balance-comparativo" element={<ComparativoFinanciero />} />
+          <Route path="comparar-ventas" element={<ComparativoVentas />} />
         </Route>
 
+        {/* Cualquier ruta no definida redirige a home (que está protegido) */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

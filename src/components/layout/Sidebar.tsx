@@ -84,6 +84,7 @@ const Sidebar: React.FC = () => {
         { path: '/comparar-ventas', label: '📊 Comparar Ventas entre Meses', description: 'Análisis de ventas' }
       ]
     }
+    
   ];
 
   const toggleMenu = (key: string) => {

@@ -5,7 +5,8 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const isAuthenticated = localStorage.getItem("isAuthenticated") === "true";
+  // 👇 CAMBIO: usar sessionStorage en lugar de localStorage
+  const isAuthenticated = sessionStorage.getItem("isAuthenticated") === "true";
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

@@ -1,6 +1,10 @@
 // src/generadorPDF.ts
 import jsPDF from 'jspdf';
 import logoImg from './assets/logo.png';  // 👈 AGREGAR ESTA LÍNEA
+import facebookIcon from './assets/facebook.png';  // 👈 AGREGAR
+import instagramIcon from './assets/instagram.png'; // 👈 AGREGAR
+import tiktokIcon from './assets/tiktok.png';       // 
+
 type TipoDocumento = 'boleta' | 'factura' | 'recibo';
 
 interface ProductoVenta {
@@ -51,7 +55,7 @@ export function generarDocumentoPDF(tipo: TipoDocumento, datos: DatosDocumento) 
   let yPos = 20;
   
 
-  // ENCABEZADO
+// ENCABEZADO
   
   // 👇 AGREGAR LOGO
   try {
@@ -60,12 +64,39 @@ export function generarDocumentoPDF(tipo: TipoDocumento, datos: DatosDocumento) 
     console.error('Error cargando logo:', e);
   }
   
- 
+  // 👇 AGREGAR REDES SOCIALES HORIZONTALES EN LA PARTE SUPERIOR
+  doc.setFontSize(7);
+  doc.setTextColor(0, 0, 0);
+  
+  const redesYPos = 15; // Posición vertical (arriba)
+  let redesXPos = margenDer - 140; // Posición inicial desde la derecha
+  const iconSize = 4; // Tamaño de los iconos
+  const iconTextGap = 2; // Espacio entre icono y texto
+  const redesSpacing = 35; // Espacio entre cada red social
+  
+  try {
+    // Facebook
+    doc.addImage(facebookIcon, 'PNG', redesXPos, redesYPos, iconSize, iconSize);
+    doc.text('Alfa.Mobile.Pe', redesXPos + iconSize + iconTextGap, redesYPos + 3);
+    redesXPos += 25;
+    
+    // Instagram
+    doc.addImage(instagramIcon, 'PNG', redesXPos, redesYPos, iconSize, iconSize);
+    doc.text('alfa_mobile_pe', redesXPos + iconSize + iconTextGap, redesYPos + 3);
+    redesXPos += 25;
+    
+    // TikTok
+    doc.addImage(tiktokIcon, 'PNG', redesXPos, redesYPos, iconSize, iconSize);
+    doc.text('alfa_mobile_pe', redesXPos + iconSize + iconTextGap, redesYPos + 3);
+  } catch (e) {
+    console.error('Error cargando iconos de redes:', e);
+  }
+  
+  doc.setTextColor(0, 0, 0); // Resetear color
   
   yPos += 8;
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  
   
   yPos += 25;
   doc.setFontSize(20);
@@ -90,6 +121,7 @@ export function generarDocumentoPDF(tipo: TipoDocumento, datos: DatosDocumento) 
   doc.text('PUEBLO LIBRE, LIMA - LIMA', margenIzq, yPos);
   
   yPos += 10;
+
   
   // CUADRO DE GARANTÍA/TIPO DE DOCUMENTO
   doc.setDrawColor(0, 0, 0);
@@ -114,7 +146,7 @@ export function generarDocumentoPDF(tipo: TipoDocumento, datos: DatosDocumento) 
   yPos += 10;
   
   // DATOS DE VENTA (fondo azul)
-  doc.setFillColor(41, 98, 255);
+  doc.setFillColor('#7FEFEA');
   doc.rect(margenIzq, yPos, margenDer - margenIzq, 7, 'F');
   
   doc.setTextColor(255, 255, 255);
@@ -199,7 +231,7 @@ export function generarDocumentoPDF(tipo: TipoDocumento, datos: DatosDocumento) 
   yPos += 15;
   
   // DATOS DEL EQUIPO (fondo azul)
-  doc.setFillColor(41, 98, 255);
+  doc.setFillColor('#7FEFEA');
   doc.rect(margenIzq, yPos, margenDer - margenIzq, 7, 'F');
   
   doc.setTextColor(255, 255, 255);

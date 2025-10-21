@@ -17,8 +17,9 @@ export default function Login() {
     await new Promise(resolve => setTimeout(resolve, 800));
 
     if (username === "admin" && password === "admin") {
-      localStorage.setItem("isAuthenticated", "true");
-      localStorage.setItem("user", username);
+      // 👇 CAMBIO: usar sessionStorage en lugar de localStorage
+      sessionStorage.setItem("isAuthenticated", "true");
+      sessionStorage.setItem("user", username);
       navigate("/");
     } else {
       setError("Usuario o contraseña incorrectos");
